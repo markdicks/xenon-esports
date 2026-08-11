@@ -7,6 +7,7 @@ const links = [
   { href: "/roadmap", label: "Roadmap" },
   { href: "/recruitment", label: "Recruitment" },
   { href: "/about", label: "About" },
+  { href: "/contact", label: "Contact" },
 ];
 
 export function Navbar() {
@@ -43,7 +44,7 @@ export function Navbar() {
             </Link>
           ))}
         </div>
-        <Button href="/recruitment" className="hidden sm:inline-flex">
+        <Button href="/join/staff" className="hidden sm:inline-flex">
           Join 2027
         </Button>
       </nav>

@@ -18,9 +18,9 @@ export function CommunityCTA() {
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
-            <Button href="/recruitment">Join the team</Button>
-            <Button href="/" variant="secondary">
-              Discord soon
+            <Button href="/join/staff">Join the team</Button>
+            <Button href="/contact" variant="secondary">
+              Contact us
             </Button>
           </div>
         </div>

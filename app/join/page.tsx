@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+
 export default function JoinPage() {
-  return null;
+  redirect("/join/staff");
 }

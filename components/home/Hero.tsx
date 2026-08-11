@@ -18,7 +18,7 @@ export function Hero() {
             following.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <Button href="/recruitment">Apply to staff</Button>
+            <Button href="/join/staff">Apply to staff</Button>
             <Button href="/roadmap" variant="secondary">
               View roadmap
             </Button>

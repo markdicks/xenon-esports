@@ -1,5 +1,6 @@
 import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
+import { Button } from "@/components/ui/Button";
 import { RoleCard } from "@/components/ui/RoleCard";
 import { roles } from "@/data/roles";
 
@@ -25,6 +26,9 @@ export default function RecruitmentPage() {
             {roles.map((role) => (
               <RoleCard key={role.title} role={role} />
             ))}
+          </div>
+          <div className="mt-10 flex justify-center">
+            <Button href="/join/staff">Apply for an open seat</Button>
           </div>
         </div>
       </section>
