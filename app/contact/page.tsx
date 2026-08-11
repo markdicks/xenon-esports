@@ -32,7 +32,7 @@ function Field({
 export default async function ContactPage({ searchParams }: ContactPageProps) {
   const params = await searchParams;
   const submitted = typeof params?.submitted === "string" ? params.submitted : "";
-  const hasError = params?.error === "validation";
+  const error = typeof params?.error === "string" ? params.error : "";
 
   return (
     <main className="xenon-shell min-h-screen">
@@ -64,14 +64,17 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
             </div>
           ) : null}
 
-          {hasError ? (
+          {error ? (
             <div className="mb-8 rounded-lg bg-volt/10 p-5 ring-1 ring-volt/35">
               <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-volt">
-                Check your enquiry
+                {error === "database"
+                  ? "Could not save enquiry"
+                  : "Check your enquiry"}
               </p>
               <p className="mt-2 text-steel">
-                Some required fields are missing or invalid. Please review and
-                submit again.
+                {error === "database"
+                  ? "The form reached the server, but the database insert failed. Please try again in a moment."
+                  : "Some required fields are missing or invalid. Please review and submit again."}
               </p>
             </div>
           ) : null}

@@ -32,24 +32,29 @@ export async function submitContactForm(formData: FormData) {
   const reference = generatePublicReference("CON");
   const enquiry = parsed.data;
 
-  await getDbPool().execute(
-    `INSERT INTO contact_submissions (
-      public_reference,
-      name,
-      discord_username,
-      email,
-      subject,
-      message
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
-    [
-      reference,
-      enquiry.name,
-      enquiry.discordUsername ?? null,
-      enquiry.email,
-      enquiry.subject,
-      enquiry.message,
-    ],
-  );
+  try {
+    await getDbPool().execute(
+      `INSERT INTO contact_submissions (
+        public_reference,
+        name,
+        discord_username,
+        email,
+        subject,
+        message
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        reference,
+        enquiry.name,
+        enquiry.discordUsername ?? null,
+        enquiry.email,
+        enquiry.subject,
+        enquiry.message,
+      ],
+    );
+  } catch (error) {
+    console.error("Contact submission failed", error);
+    redirect("/contact?error=database");
+  }
 
   redirect(`/contact?submitted=${reference}`);
 }

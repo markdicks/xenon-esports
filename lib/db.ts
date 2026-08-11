@@ -17,9 +17,15 @@ export function getDbPool() {
     return pool;
   }
 
+  const port = Number(requireEnv("DB_PORT"));
+
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error("DB_PORT must be a valid port number.");
+  }
+
   pool = mysql.createPool({
     host: requireEnv("DB_HOST"),
-    port: Number(requireEnv("DB_PORT")),
+    port,
     user: requireEnv("DB_USER"),
     password: requireEnv("DB_PASSWORD"),
     database: requireEnv("DB_NAME"),

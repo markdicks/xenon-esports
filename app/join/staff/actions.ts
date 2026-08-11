@@ -41,40 +41,45 @@ export async function submitStaffApplication(formData: FormData) {
   const reference = generatePublicReference("APP");
   const application = parsed.data;
 
-  await getDbPool().execute(
-    `INSERT INTO applications (
-      public_reference,
-      discord_username,
-      email,
-      timezone,
-      role,
-      weekly_availability,
-      experience,
-      portfolio_url,
-      motivation,
-      first_30_days_goal,
-      reliability_example,
-      reason_may_leave,
-      support_needed,
-      unpaid_volunteer_acknowledgement
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      reference,
-      application.discordUsername,
-      application.email ?? null,
-      application.timezone,
-      application.role,
-      application.weeklyAvailability,
-      application.experience,
-      application.portfolioUrl ?? null,
-      application.motivation,
-      application.firstThirtyDaysGoal,
-      application.reliabilityExample,
-      application.reasonMayLeave,
-      application.supportNeeded ?? null,
-      application.unpaidVolunteerAcknowledgement,
-    ],
-  );
+  try {
+    await getDbPool().execute(
+      `INSERT INTO applications (
+        public_reference,
+        discord_username,
+        email,
+        timezone,
+        role,
+        weekly_availability,
+        experience,
+        portfolio_url,
+        motivation,
+        first_30_days_goal,
+        reliability_example,
+        reason_may_leave,
+        support_needed,
+        unpaid_volunteer_acknowledgement
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        reference,
+        application.discordUsername,
+        application.email ?? null,
+        application.timezone,
+        application.role,
+        application.weeklyAvailability,
+        application.experience,
+        application.portfolioUrl ?? null,
+        application.motivation,
+        application.firstThirtyDaysGoal,
+        application.reliabilityExample,
+        application.reasonMayLeave,
+        application.supportNeeded ?? null,
+        application.unpaidVolunteerAcknowledgement,
+      ],
+    );
+  } catch (error) {
+    console.error("Staff application submission failed", error);
+    redirect("/join/staff?error=database");
+  }
 
   redirect(`/join/staff?submitted=${reference}`);
 }
