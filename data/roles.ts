@@ -18,9 +18,9 @@ export const roles: Role[] = [
   {
     title: "Head of Operations",
     department: "Operations",
-    status: "open",
+    status: "closed",
     description:
-      "Own internal coordination, staff operations and execution across Xenon.",
+      "Held by Gforce. Owns internal coordination, staff support, cross-department communication and day-to-day execution across Xenon.",
   },
   {
     title: "Competitive Director",

@@ -13,4 +13,13 @@ export const staff = [
       "Editing",
     ],
   },
+  {
+    name: "Gforce",
+    role: "Head of Operations",
+    responsibilities: [
+      "Staff Support",
+      "Cross-department Communication",
+      "Day-to-day Execution",
+    ],
+  },
 ];
