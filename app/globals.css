@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --background: #090a0f;
+  --foreground: #f6f7fb;
+  --font-inter: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  --font-space-grotesk: "Space Grotesk", "Arial Black", Impact, ui-sans-serif,
+    system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(79, 255, 216, 0.14), transparent 32rem),
+    radial-gradient(circle at 90% 20%, rgba(216, 255, 61, 0.12), transparent 28rem),
+    linear-gradient(135deg, #090a0f 0%, #121621 52%, #090a0f 100%);
+  color: var(--foreground);
+}
+
+::selection {
+  background: #d8ff3d;
+  color: #090a0f;
+}
+
+.xenon-shell {
+  position: relative;
+  overflow: hidden;
+}
+
+.xenon-shell::before {
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  content: "";
+  background-image: linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, black, transparent 75%);
+}
+
+.xenon-shell::after {
+  position: fixed;
+  inset: auto -10% 0;
+  z-index: -1;
+  height: 36rem;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgba(79, 255, 216, 0.16), transparent);
+  filter: blur(70px);
+}
+
+.noise {
+  background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.08), transparent);
+}
+
+.scanline {
+  position: relative;
+}
+
+.scanline::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, #4fffd8, transparent);
+  opacity: 0.7;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .float-in {
+    animation: float-in 700ms ease both;
+  }
+
+  .pulse-signal {
+    animation: pulse-signal 2.8s ease-in-out infinite;
+  }
+}
+
+@keyframes float-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-signal {
+  0%,
+  100% {
+    opacity: 0.68;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}

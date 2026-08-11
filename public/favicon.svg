@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Xenon Esports logo">
+  <path
+    d="M13 18h16l20 27L69 18h16L57 48l27 30H68L49 52 30 78H13l28-30L13 18Z"
+    fill="#050609"
+  />
+  <path
+    d="M17 20h12l20 25L68 20h12L54 48l25 28H68L49 52 30 76H18l27-28L17 20Z"
+    fill="none"
+    stroke="#f6f7fb"
+    stroke-width="5"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M56 25h28M63 48h22M56 71h28"
+    fill="none"
+    stroke="#aeb7c7"
+    stroke-width="7"
+    stroke-linecap="square"
+  />
+  <path
+    d="M56 25h28M63 48h22M56 71h28"
+    fill="none"
+    stroke="#4fffd8"
+    stroke-width="2"
+    stroke-linecap="square"
+    opacity=".85"
+  />
+</svg>

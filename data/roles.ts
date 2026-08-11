@@ -1,4 +1,6 @@
-export const roles = [
+import type { Role } from "@/types";
+
+export const roles: Role[] = [
   {
     title: "Head of Operations",
     department: "Operations",
