@@ -28,6 +28,15 @@ export function getDbPool() {
     return pool;
   }
 
+  console.log("DB CONFIG", {
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER,
+    database: process.env.DB_NAME,
+    passwordPresent: Boolean(process.env.DB_PASSWORD),
+    passwordLength: process.env.DB_PASSWORD?.length,
+  });
+
   pool = mysql.createPool({
     host: requireEnv("DB_HOST"),
     port: getDbPort(),
