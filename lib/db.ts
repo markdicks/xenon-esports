@@ -12,20 +12,25 @@ function requireEnv(name: string) {
   return value;
 }
 
-export function getDbPool() {
-  if (pool) {
-    return pool;
-  }
-
-  const port = Number(requireEnv("DB_PORT"));
+function getDbPort() {
+  const value = process.env.DB_PORT?.trim() || "3306";
+  const port = Number(value);
 
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error("DB_PORT must be a valid port number.");
   }
 
+  return port;
+}
+
+export function getDbPool() {
+  if (pool) {
+    return pool;
+  }
+
   pool = mysql.createPool({
     host: requireEnv("DB_HOST"),
-    port,
+    port: getDbPort(),
     user: requireEnv("DB_USER"),
     password: requireEnv("DB_PASSWORD"),
     database: requireEnv("DB_NAME"),
