@@ -1,9 +1,18 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { getDbPool } from "@/lib/db";
 import { generatePublicReference } from "@/lib/references";
 import { contactSubmissionSchema } from "@/lib/validation";
+
+export type ContactFormResult =
+  | {
+      success: true;
+      reference: string;
+    }
+  | {
+      success: false;
+      error: "validation" | "database";
+    };
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -14,7 +23,10 @@ export async function submitContactForm(formData: FormData) {
   const honeypot = readString(formData, "website");
 
   if (honeypot) {
-    redirect(`/contact?submitted=${generatePublicReference("CON")}`);
+    return {
+      success: true,
+      reference: generatePublicReference("CON"),
+    } satisfies ContactFormResult;
   }
 
   const parsed = contactSubmissionSchema.safeParse({
@@ -26,7 +38,10 @@ export async function submitContactForm(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect("/contact?error=validation");
+    return {
+      success: false,
+      error: "validation",
+    } satisfies ContactFormResult;
   }
 
   const reference = generatePublicReference("CON");
@@ -53,8 +68,14 @@ export async function submitContactForm(formData: FormData) {
     );
   } catch (error) {
     console.error("Contact submission failed", error);
-    redirect("/contact?error=database");
+    return {
+      success: false,
+      error: "database",
+    } satisfies ContactFormResult;
   }
 
-  redirect(`/contact?submitted=${reference}`);
+  return {
+    success: true,
+    reference,
+  } satisfies ContactFormResult;
 }

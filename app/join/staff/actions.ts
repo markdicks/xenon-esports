@@ -1,9 +1,18 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { getDbPool } from "@/lib/db";
 import { generatePublicReference } from "@/lib/references";
 import { staffApplicationSchema } from "@/lib/validation";
+
+export type StaffApplicationResult =
+  | {
+      success: true;
+      reference: string;
+    }
+  | {
+      success: false;
+      error: "validation" | "database";
+    };
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -14,7 +23,10 @@ export async function submitStaffApplication(formData: FormData) {
   const honeypot = readString(formData, "website");
 
   if (honeypot) {
-    redirect(`/join/staff?submitted=${generatePublicReference("APP")}`);
+    return {
+      success: true,
+      reference: generatePublicReference("APP"),
+    } satisfies StaffApplicationResult;
   }
 
   const parsed = staffApplicationSchema.safeParse({
@@ -35,7 +47,10 @@ export async function submitStaffApplication(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect("/join/staff?error=validation");
+    return {
+      success: false,
+      error: "validation",
+    } satisfies StaffApplicationResult;
   }
 
   const reference = generatePublicReference("APP");
@@ -78,8 +93,14 @@ export async function submitStaffApplication(formData: FormData) {
     );
   } catch (error) {
     console.error("Staff application submission failed", error);
-    redirect("/join/staff?error=database");
+    return {
+      success: false,
+      error: "database",
+    } satisfies StaffApplicationResult;
   }
 
-  redirect(`/join/staff?submitted=${reference}`);
+  return {
+    success: true,
+    reference,
+  } satisfies StaffApplicationResult;
 }
