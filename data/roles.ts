@@ -25,9 +25,9 @@ export const roles: Role[] = [
   {
     title: "Competitive Director",
     department: "Competitive",
-    status: "open",
+    status: "closed",
     description:
-      "Build and oversee Xenon's competitive divisions and team leadership.",
+      "Held by Teach. Builds and oversees Xenon's competitive divisions and team leadership.",
   },
   {
     title: "Creator Director",
@@ -39,8 +39,8 @@ export const roles: Role[] = [
   {
     title: "Community Manager",
     department: "Community",
-    status: "open",
+    status: "closed",
     description:
-      "Keep Discord, events and member communication active, clear and welcoming.",
+      "Held by Jay. Keeps Discord, events and member communication active, clear and welcoming.",
   },
 ];

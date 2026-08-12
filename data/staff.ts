@@ -22,4 +22,22 @@ export const staff = [
       "Day-to-day Execution",
     ],
   },
+  {
+    name: "Teach",
+    role: "Competitive Director",
+    responsibilities: [
+      "Competitive Divisions",
+      "Team Leadership",
+      "Roster Standards",
+    ],
+  },
+  {
+    name: "Jay^^•",
+    role: "Community Manager",
+    responsibilities: [
+      "Discord Activity",
+      "Community Events",
+      "Member Communication",
+    ],
+  },
 ];
