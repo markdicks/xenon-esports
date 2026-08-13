@@ -40,4 +40,13 @@ export const staff = [
       "Member Communication",
     ],
   },
+  {
+    name: "Stormi",
+    role: "Creator Director",
+    responsibilities: [
+      "Creative Direction",
+      "Creator Programme",
+      "Creator Relationships",
+    ],
+  },
 ];

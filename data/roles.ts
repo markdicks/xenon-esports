@@ -32,9 +32,9 @@ export const roles: Role[] = [
   {
     title: "Creator Director",
     department: "Creators",
-    status: "open",
+    status: "closed",
     description:
-      "Build Xenon's creator programme and manage creator relationships.",
+      "Held by Stormi. Builds Xenon's creator direction, creator programme and creator relationships.",
   },
   {
     title: "Community Manager",
