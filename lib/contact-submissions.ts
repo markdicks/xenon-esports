@@ -1,32 +1,22 @@
-"use server";
-
+import { z } from "zod";
 import { getDbPool } from "@/lib/db";
+import type { SubmissionResult } from "@/lib/form-results";
 import { generatePublicReference } from "@/lib/references";
 import { contactSubmissionSchema } from "@/lib/validation";
-
-export type ContactFormResult =
-  | {
-      success: true;
-      reference: string;
-    }
-  | {
-      success: false;
-      error: "validation" | "database";
-    };
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
 }
 
-export async function submitContactForm(formData: FormData) {
+export async function submitContactForm(formData: FormData): Promise<SubmissionResult> {
   const honeypot = readString(formData, "website");
 
   if (honeypot) {
     return {
       success: true,
       reference: generatePublicReference("CON"),
-    } satisfies ContactFormResult;
+    } satisfies SubmissionResult;
   }
 
   const parsed = contactSubmissionSchema.safeParse({
@@ -41,7 +31,8 @@ export async function submitContactForm(formData: FormData) {
     return {
       success: false,
       error: "validation",
-    } satisfies ContactFormResult;
+      fieldErrors: z.flattenError(parsed.error).fieldErrors,
+    } satisfies SubmissionResult;
   }
 
   const reference = generatePublicReference("CON");
@@ -71,11 +62,11 @@ export async function submitContactForm(formData: FormData) {
     return {
       success: false,
       error: "database",
-    } satisfies ContactFormResult;
+    } satisfies SubmissionResult;
   }
 
   return {
     success: true,
     reference,
-  } satisfies ContactFormResult;
+  } satisfies SubmissionResult;
 }

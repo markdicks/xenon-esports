@@ -1,32 +1,22 @@
-"use server";
-
+import { z } from "zod";
 import { getDbPool } from "@/lib/db";
+import type { SubmissionResult } from "@/lib/form-results";
 import { generatePublicReference } from "@/lib/references";
 import { staffApplicationSchema } from "@/lib/validation";
-
-export type StaffApplicationResult =
-  | {
-      success: true;
-      reference: string;
-    }
-  | {
-      success: false;
-      error: "validation" | "database";
-    };
 
 function readString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value : "";
 }
 
-export async function submitStaffApplication(formData: FormData) {
+export async function submitStaffApplication(formData: FormData): Promise<SubmissionResult> {
   const honeypot = readString(formData, "website");
 
   if (honeypot) {
     return {
       success: true,
       reference: generatePublicReference("APP"),
-    } satisfies StaffApplicationResult;
+    } satisfies SubmissionResult;
   }
 
   const parsed = staffApplicationSchema.safeParse({
@@ -50,7 +40,8 @@ export async function submitStaffApplication(formData: FormData) {
     return {
       success: false,
       error: "validation",
-    } satisfies StaffApplicationResult;
+      fieldErrors: z.flattenError(parsed.error).fieldErrors,
+    } satisfies SubmissionResult;
   }
 
   const reference = generatePublicReference("APP");
@@ -96,11 +87,11 @@ export async function submitStaffApplication(formData: FormData) {
     return {
       success: false,
       error: "database",
-    } satisfies StaffApplicationResult;
+    } satisfies SubmissionResult;
   }
 
   return {
     success: true,
     reference,
-  } satisfies StaffApplicationResult;
+  } satisfies SubmissionResult;
 }

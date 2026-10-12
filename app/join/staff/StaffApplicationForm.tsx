@@ -1,10 +1,8 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import {
-  submitStaffApplication,
-  type StaffApplicationResult,
-} from "@/app/join/staff/actions";
+import { useRef, useState, useTransition, type FormEvent } from "react";
+import type { SubmissionResult } from "@/lib/form-results";
+import { submitForm } from "@/lib/submit-form";
 import type { Role } from "@/types";
 
 function textInputClass() {
@@ -38,11 +36,15 @@ function Field({
 export function StaffApplicationForm({ roles }: { roles: Role[] }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
-  const [result, setResult] = useState<StaffApplicationResult | null>(null);
+  const [result, setResult] = useState<SubmissionResult | null>(null);
 
-  function handleSubmit(formData: FormData) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isPending) return;
+    const formData = new FormData(event.currentTarget);
+    setResult(null);
     startTransition(async () => {
-      const nextResult = await submitStaffApplication(formData);
+      const nextResult = await submitForm("/api/join/staff", formData);
       setResult(nextResult);
 
       if (nextResult.success) {
@@ -54,7 +56,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
   return (
     <>
       {result?.success ? (
-        <div className="mb-8 rounded-lg bg-ion/10 p-5 ring-1 ring-ion/35">
+        <div role="status" className="mb-8 rounded-lg bg-ion/10 p-5 ring-1 ring-ion/35">
           <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-ion">
             Application received
           </p>
@@ -66,23 +68,33 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
       ) : null}
 
       {result && !result.success ? (
-        <div className="mb-8 rounded-lg bg-volt/10 p-5 ring-1 ring-volt/35">
+        <div role="alert" className="mb-8 rounded-lg bg-volt/10 p-5 ring-1 ring-volt/35">
           <p className="font-display text-sm font-bold uppercase tracking-[0.2em] text-volt">
             {result.error === "database"
               ? "Could not save application"
-              : "Check your application"}
+              : result.error === "network" ? "Could not confirm application" : "Check your application"}
           </p>
           <p className="mt-2 text-steel">
             {result.error === "database"
               ? "The form reached the server, but the database insert failed. Please try again in a moment."
-              : "Some required fields are missing or too short. Please add more detail and submit again."}
+              : result.error === "network"
+                ? "We could not confirm that your application was received. Check your connection before trying again. Your form has been kept."
+                : "Please correct the following fields and submit again."}
           </p>
+          {result.error === "validation" && result.fieldErrors ? (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-steel">
+              {Object.entries(result.fieldErrors).flatMap(([field, errors]) =>
+                errors.map((error, index) => <li key={`${field}-${index}`}>{error}</li>),
+              )}
+            </ul>
+          ) : null}
         </div>
       ) : null}
 
       <form
         ref={formRef}
-        action={handleSubmit}
+        onSubmit={handleSubmit}
+        method="post"
         className="grid gap-5 rounded-lg bg-white/[0.04] p-5 ring-1 ring-white/10 sm:p-8"
       >
         <input
@@ -99,6 +111,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
             <input
               id="discordUsername"
               name="discordUsername"
+              maxLength={120}
               className={textInputClass()}
               required
             />
@@ -108,6 +121,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
               id="email"
               name="email"
               type="email"
+              maxLength={255}
               className={textInputClass()}
             />
           </Field>
@@ -115,6 +129,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
             <input
               id="timezone"
               name="timezone"
+              maxLength={80}
               placeholder="SAST / GMT+2"
               className={textInputClass()}
               required
@@ -145,6 +160,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
           <input
             id="weeklyAvailability"
             name="weeklyAvailability"
+            maxLength={120}
             placeholder="Example: 6-8 hours, evenings and weekends"
             className={textInputClass()}
             required
@@ -155,6 +171,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
           <textarea
             id="experience"
             name="experience"
+            maxLength={4000}
             className={textareaClass()}
             required
           />
@@ -165,6 +182,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
             id="portfolioUrl"
             name="portfolioUrl"
             type="url"
+            maxLength={500}
             className={textInputClass()}
           />
         </Field>
@@ -173,6 +191,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
           <textarea
             id="motivation"
             name="motivation"
+            maxLength={4000}
             className={textareaClass()}
             required
           />
@@ -182,6 +201,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
           <textarea
             id="firstThirtyDaysGoal"
             name="firstThirtyDaysGoal"
+            maxLength={4000}
             className={textareaClass()}
             required
           />
@@ -191,6 +211,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
           <textarea
             id="reliabilityExample"
             name="reliabilityExample"
+            maxLength={4000}
             className={textareaClass()}
             required
           />
@@ -200,6 +221,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
           <textarea
             id="reasonMayLeave"
             name="reasonMayLeave"
+            maxLength={4000}
             className={textareaClass()}
             required
           />
@@ -209,6 +231,7 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
           <textarea
             id="supportNeeded"
             name="supportNeeded"
+            maxLength={2000}
             className={textareaClass()}
           />
         </Field>
