@@ -20,10 +20,10 @@ test("staff role cards use Discord nicknames and role assignments as their sourc
     else process.env.WEBSITE_BOT_TOKEN = originalToken;
   });
 
-  process.env.DISCORD_BOT_URL = "https://xenon-discord-bot.onrender.com";
+  process.env.DISCORD_BOT_URL = "https://first-roster.xenon.example";
   process.env.WEBSITE_BOT_TOKEN = "shared-secret";
   global.fetch = async (url, options) => {
-    assert.equal(url.href, "https://xenon-discord-bot.onrender.com/api/website/roster");
+    assert.equal(url.href, "https://first-roster.xenon.example/api/website/roster");
     assert.equal(options.headers.Authorization, "Bearer shared-secret");
     return Response.json({
       guild: { id: "123", name: "Xenon HQ" },
@@ -56,7 +56,7 @@ test("the website roster retries a transient bot failure before marking availabi
     if (originalToken === undefined) delete process.env.WEBSITE_BOT_TOKEN;
     else process.env.WEBSITE_BOT_TOKEN = originalToken;
   });
-  process.env.DISCORD_BOT_URL = "https://xenon-discord-bot.onrender.com";
+  process.env.DISCORD_BOT_URL = "https://retry-roster.xenon.example";
   process.env.WEBSITE_BOT_TOKEN = "shared-secret";
   let calls = 0;
   global.fetch = async () => {
@@ -67,4 +67,28 @@ test("the website roster retries a transient bot failure before marking availabi
   const result = await roster.getWebsiteRoster();
   assert.equal(result.source, "discord");
   assert.equal(calls, 2);
+});
+
+test("the About and recruitment pages share a recent verified roster when a later request fails", async (t) => {
+  const originalFetch = global.fetch;
+  const originalBotUrl = process.env.DISCORD_BOT_URL;
+  const originalToken = process.env.WEBSITE_BOT_TOKEN;
+  t.after(() => {
+    global.fetch = originalFetch;
+    if (originalBotUrl === undefined) delete process.env.DISCORD_BOT_URL;
+    else process.env.DISCORD_BOT_URL = originalBotUrl;
+    if (originalToken === undefined) delete process.env.WEBSITE_BOT_TOKEN;
+    else process.env.WEBSITE_BOT_TOKEN = originalToken;
+  });
+  process.env.DISCORD_BOT_URL = "https://shared-roster.xenon.example";
+  process.env.WEBSITE_BOT_TOKEN = "shared-secret";
+  global.fetch = async () => Response.json({
+    guild: { id: "123", name: "Xenon HQ" }, syncedAt: "2026-10-26T10:00:00.000Z",
+    roles: [{ id: "founder", name: "Founder", exists: true, members: [{ id: "1", nickname: "Sparky XE", username: "sparky" }] }],
+  });
+  await roster.getWebsiteRoster();
+  global.fetch = async () => { throw new Error("Render restart"); };
+  const fallback = await roster.getWebsiteRoster();
+  assert.equal(fallback.source, "discord");
+  assert.equal(fallback.roles[0].members[0].nickname, "Sparky XE");
 });

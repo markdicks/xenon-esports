@@ -93,14 +93,39 @@ const getCachedRemoteRoster = unstable_cache(fetchRemoteRoster, ["xenon-discord-
   revalidate: 60,
 });
 
+const FALLBACK_TTL_MS = 5 * 60 * 1000;
+let lastKnownGoodRoster: { key: string; roster: RemoteRoster; receivedAt: number } | null = null;
+let inFlightRoster: { key: string; request: Promise<RemoteRoster> } | null = null;
+
+function rosterKey(botUrl: string, token: string) {
+  return `${botUrl}\u0000${token}`;
+}
+
+function loadRemoteRoster(botUrl: string, token: string) {
+  const key = rosterKey(botUrl, token);
+  if (inFlightRoster?.key === key) return inFlightRoster.request;
+  const request = getCachedRemoteRoster(botUrl, token).then((roster) => {
+    lastKnownGoodRoster = { key, roster, receivedAt: Date.now() };
+    return roster;
+  }).finally(() => {
+    if (inFlightRoster?.request === request) inFlightRoster = null;
+  });
+  inFlightRoster = { key, request };
+  return request;
+}
+
 export async function getWebsiteRoster(): Promise<WebsiteRoster> {
   const botUrl = process.env.DISCORD_BOT_URL;
   const token = process.env.WEBSITE_BOT_TOKEN;
   if (!botUrl || !token) return unavailableRoster();
 
   try {
-    return { source: "discord", ...await getCachedRemoteRoster(botUrl, token) };
+    return { source: "discord", ...await loadRemoteRoster(botUrl, token) };
   } catch {
+    const key = rosterKey(botUrl, token);
+    if (lastKnownGoodRoster?.key === key && Date.now() - lastKnownGoodRoster.receivedAt <= FALLBACK_TTL_MS) {
+      return { source: "discord", ...lastKnownGoodRoster.roster };
+    }
     return unavailableRoster();
   }
 }
