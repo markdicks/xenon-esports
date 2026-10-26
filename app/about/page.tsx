@@ -2,9 +2,12 @@ import Image from "next/image";
 import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/Button";
-import { staff } from "@/data/staff";
+import { getCurrentStaff } from "@/lib/discord-roster";
 
-export default function AboutPage() {
+export const dynamic = "force-dynamic";
+
+export default async function AboutPage() {
+  const staff = await getCurrentStaff();
   return (
     <main className="xenon-shell min-h-screen">
       <Navbar />
@@ -82,14 +85,14 @@ export default function AboutPage() {
               </h2>
             </div>
             <p className="max-w-xl text-sm leading-6 text-steel sm:text-right">
-              The team is intentionally small while the foundations are being
-              set, with open roles ready for the next wave.
+              Names are pulled from the Xenon Discord server, using each
+              member&apos;s server nickname. Open staff roles are shown on recruitment.
             </p>
           </div>
-          <div className="grid gap-4 md:grid-cols-2">
+          {staff.length ? <div className="grid gap-4 md:grid-cols-2">
             {staff.map((member) => (
               <article
-                key={member.name}
+                key={member.id}
                 className="rounded-lg bg-black/35 p-6 ring-1 ring-white/10 transition hover:ring-ion/45"
               >
                 <p className="font-display text-xs font-bold uppercase tracking-[0.22em] text-ion">
@@ -110,7 +113,9 @@ export default function AboutPage() {
                 </div>
               </article>
             ))}
-          </div>
+          </div> : <div className="rounded-lg bg-black/35 p-6 text-steel ring-1 ring-white/10">
+            Staff availability is syncing from Discord. Please check back shortly.
+          </div>}
         </div>
       </section>
       <Footer />

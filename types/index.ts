@@ -13,9 +13,19 @@ export type RoadmapItem = {
   label: string;
 };
 
+export type DiscordRosterMember = {
+  id: string;
+  nickname: string;
+  username: string;
+};
+
+export type RoleStatus = "open" | "closed" | "unavailable";
+
 export type Role = {
+  id: string;
   title: string;
   department: string;
-  status: "open" | "closed";
+  status: RoleStatus;
   description: string;
+  holders: DiscordRosterMember[];
 };

@@ -2,9 +2,15 @@ import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/Button";
 import { RoleCard } from "@/components/ui/RoleCard";
-import { roles } from "@/data/roles";
+import { getStaffRoles } from "@/lib/discord-roster";
 
-export default function RecruitmentPage() {
+export const dynamic = "force-dynamic";
+
+export default async function RecruitmentPage() {
+  const roles = await getStaffRoles();
+  const openRoles = roles.filter((role) => role.status === "open");
+  const rosterUnavailable = roles.every((role) => role.status === "unavailable");
+
   return (
     <main className="xenon-shell min-h-screen">
       <Navbar />
@@ -15,11 +21,12 @@ export default function RecruitmentPage() {
               Recruitment
             </p>
             <h1 className="mt-3 font-display text-4xl font-black leading-tight text-white sm:text-6xl">
-              Staff seats are open.
+              {rosterUnavailable ? "Staff availability is syncing." : `${openRoles.length} staff seat${openRoles.length === 1 ? "" : "s"} open.`}
             </h1>
             <p className="mt-4 text-base leading-7 text-steel sm:text-lg">
-              High-leverage roles for people who want to help build Xenon
-              before the 2027 season fully comes online.
+              {rosterUnavailable
+                ? "Discord role availability is temporarily unavailable. You can still send a flexible application."
+                : "Live from the Xenon Discord roster. Assigning a role there immediately closes its website seat."}
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
@@ -28,7 +35,7 @@ export default function RecruitmentPage() {
             ))}
           </div>
           <div className="mt-10 flex justify-center">
-            <Button href="/join/staff">Apply for an open seat</Button>
+            <Button href="/join/staff">{openRoles.length ? "Apply for an open seat" : "Send a flexible application"}</Button>
           </div>
         </div>
       </section>

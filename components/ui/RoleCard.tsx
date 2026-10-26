@@ -7,12 +7,13 @@ type RoleCardProps = {
 
 export function RoleCard({ role }: RoleCardProps) {
   const isClosed = role.status === "closed";
+  const isUnavailable = role.status === "unavailable";
 
   return (
     <article
       className={clsx(
         "group rounded-lg border bg-white/[0.045] p-5 transition duration-300 hover:-translate-y-1 hover:bg-white/[0.075]",
-        isClosed
+        isClosed || isUnavailable
           ? "border-white/10 opacity-75 hover:border-white/20"
           : "border-white/12 hover:border-volt/60",
       )}
@@ -29,7 +30,7 @@ export function RoleCard({ role }: RoleCardProps) {
         <span
           className={clsx(
             "rounded-full border px-3 py-1 text-[0.65rem] font-bold uppercase tracking-[0.16em]",
-            isClosed
+            isClosed || isUnavailable
               ? "border-white/20 text-steel"
               : "border-volt/40 text-volt",
           )}
@@ -38,6 +39,11 @@ export function RoleCard({ role }: RoleCardProps) {
         </span>
       </div>
       <p className="mt-4 leading-7 text-steel">{role.description}</p>
+      {isClosed ? (
+        <p className="mt-4 border-t border-white/10 pt-4 text-sm text-steel">
+          Discord roster: {role.holders.map((member) => member.nickname).join(", ")}
+        </p>
+      ) : null}
     </article>
   );
 }

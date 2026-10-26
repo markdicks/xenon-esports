@@ -1,10 +1,14 @@
 import { StaffApplicationForm } from "./StaffApplicationForm";
 import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
-import { roles } from "@/data/roles";
+import { getStaffRoles } from "@/lib/discord-roster";
 
-export default function StaffApplicationPage() {
+export const dynamic = "force-dynamic";
+
+export default async function StaffApplicationPage() {
+  const roles = await getStaffRoles();
   const openRoles = roles.filter((role) => role.status === "open");
+  const rosterUnavailable = roles.every((role) => role.status === "unavailable");
 
   return (
     <main className="xenon-shell min-h-screen">
@@ -19,8 +23,9 @@ export default function StaffApplicationPage() {
               Apply to build Xenon.
             </h1>
             <p className="mx-auto mt-4 max-w-3xl text-base leading-7 text-steel sm:text-lg">
-              Tell us where you fit, how you work and what you can realistically
-              commit to as an unpaid volunteer.
+              {rosterUnavailable
+                ? "Live Discord availability is syncing. Tell us where you fit, how you work and what you can realistically commit to as an unpaid volunteer."
+                : "Only roles without a Discord holder are listed below. You can also apply as flexible staff."}
             </p>
           </div>
 
