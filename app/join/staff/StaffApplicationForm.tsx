@@ -3,7 +3,8 @@
 import { useRef, useState, useTransition, type FormEvent } from "react";
 import type { SubmissionResult } from "@/lib/form-results";
 import { submitForm } from "@/lib/submit-form";
-import type { Role } from "@/types";
+
+const contributorRoles = ["Content & editing", "Community support", "Operations support", "Events", "Creative", "Other / flexible"];
 
 function textInputClass() {
   return "mt-2 w-full rounded-md border border-white/12 bg-black/35 px-4 py-3 text-white outline-none transition placeholder:text-steel/55 focus:border-ion focus:ring-2 focus:ring-ion/25";
@@ -33,7 +34,7 @@ function Field({
   );
 }
 
-export function StaffApplicationForm({ roles }: { roles: Role[] }) {
+export function StaffApplicationForm() {
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<SubmissionResult | null>(null);
@@ -144,14 +145,13 @@ export function StaffApplicationForm({ roles }: { roles: Role[] }) {
               defaultValue=""
             >
               <option value="" disabled>
-                Select a role
+                Select an interest area
               </option>
-              {roles.map((role) => (
-                <option key={role.title} value={role.title}>
-                  {role.title}
+              {contributorRoles.map((role) => (
+                <option key={role} value={role}>
+                  {role}
                 </option>
               ))}
-              <option value="Other / flexible">Other / flexible</option>
             </select>
           </Field>
         </div>

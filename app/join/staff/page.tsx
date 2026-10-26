@@ -1,15 +1,8 @@
 import { StaffApplicationForm } from "./StaffApplicationForm";
 import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
-import { getStaffRoles } from "@/lib/discord-roster";
-
-export const dynamic = "force-dynamic";
 
 export default async function StaffApplicationPage() {
-  const roles = await getStaffRoles();
-  const openRoles = roles.filter((role) => role.status === "open");
-  const rosterUnavailable = roles.every((role) => role.status === "unavailable");
-
   return (
     <main className="xenon-shell min-h-screen">
       <Navbar />
@@ -20,16 +13,16 @@ export default async function StaffApplicationPage() {
               Staff application
             </p>
             <h1 className="mt-3 font-display text-4xl font-black leading-tight text-white sm:text-6xl">
-              Apply to build Xenon.
+              Contribute to Xenon.
             </h1>
             <p className="mx-auto mt-4 max-w-3xl text-base leading-7 text-steel sm:text-lg">
-              {rosterUnavailable
-                ? "Live Discord availability is syncing. Tell us where you fit, how you work and what you can realistically commit to as an unpaid volunteer."
-                : "Only roles without a Discord holder are listed below. You can also apply as flexible staff."}
+              Core leadership is established through Discord. This form is for
+              future contributors and volunteer staff who can add real support
+              across content, community, operations and events.
             </p>
           </div>
 
-          <StaffApplicationForm roles={openRoles} />
+          <StaffApplicationForm />
         </div>
       </section>
       <Footer />

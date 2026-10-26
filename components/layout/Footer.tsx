@@ -5,7 +5,7 @@ export function Footer() {
         <p className="font-display font-bold uppercase tracking-[0.24em] text-white">
           Xenon 2027
         </p>
-        <p>Competitive teams, creators and community built with intent.</p>
+        <p>Competitive teams, creators and community — building toward January 2027.</p>
       </div>
     </footer>
   );

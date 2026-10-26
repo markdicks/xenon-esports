@@ -2,16 +2,16 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Xenon 2027",
+  title: "Xenon Esports — January 2027",
   description:
-    "The 2027 home for Xenon Esports: competitive teams, creators, staff recruitment, and community momentum.",
+    "Xenon Esports is actively building toward its January 2027 return through competitive teams, creators, content and community.",
   icons: {
     icon: "/favicon.svg",
   },
   openGraph: {
-    title: "Xenon 2027",
+    title: "Xenon Esports — January 2027",
     description:
-      "A competitive, creator-led esports organisation building toward 2027.",
+      "Competitive teams, creators, content and community — actively building toward Xenon's January 2027 return.",
     type: "website",
   },
 };

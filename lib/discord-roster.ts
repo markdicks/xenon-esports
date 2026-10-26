@@ -145,7 +145,7 @@ export async function getStaffRoles(): Promise<Role[]> {
     const lead = status === "closed"
       ? `Held by ${joinNames(holders)}. `
       : status === "open"
-        ? "Open for the next Xenon operator. "
+        ? "Position currently unassigned. "
         : "Availability is syncing from Discord. ";
     return { ...definition, status, holders, description: `${lead}${definition.description}` };
   });

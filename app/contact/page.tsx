@@ -16,8 +16,8 @@ export default function ContactPage() {
               Send Xenon a signal.
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-steel sm:text-lg">
-              Use this for general enquiries, partnerships, community questions
-              or anything that does not belong in the staff application form.
+              Partnerships, competitive questions, creator enquiries, community
+              ideas and media requests all start here.
             </p>
           </div>
 

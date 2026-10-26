@@ -1,4 +1,5 @@
 import { CommunityCTA } from "@/components/home/CommunityCTA";
+import { FollowTheRebuild } from "@/components/home/FollowTheRebuild";
 import { Hero } from "@/components/home/Hero";
 import { Pillars } from "@/components/home/Pillars";
 import { Footer } from "@/components/layout/Footer";
@@ -10,6 +11,7 @@ export default function Home() {
       <Navbar />
       <Hero />
       <Pillars />
+      <FollowTheRebuild />
       <CommunityCTA />
       <Footer />
     </main>

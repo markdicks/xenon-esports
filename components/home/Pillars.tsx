@@ -6,19 +6,19 @@ const pillars: Pillar[] = [
     eyebrow: "01",
     title: "Competitive discipline",
     description:
-      "Teams get structure, leadership and consistent standards before hype.",
+          "Teams get structure, leadership and consistent standards before announcements.",
   },
   {
     eyebrow: "02",
     title: "Creator momentum",
     description:
-      "Content is planned around people, stories and repeatable formats.",
+          "Creators and content are built around people, stories and repeatable formats.",
   },
   {
     eyebrow: "03",
     title: "Community trust",
     description:
-      "Fans and members see what Xenon is building, where it is going and how to join.",
+          "Members can see what Xenon is building, where it is going and how to take part.",
   },
 ];
 
@@ -28,8 +28,8 @@ export function Pillars() {
       <div className="mx-auto max-w-7xl">
         <SectionHeading
           eyebrow="Operating pillars"
-          title="Three lanes, one standard."
-          description="The first version of the site makes the organisation understandable at a glance."
+          title="Three lanes, one return."
+          description="Xenon is active now: aligning competitive ambition, creator energy and a community people can join before launch."
         />
         <div className="grid gap-4 md:grid-cols-3">
           {pillars.map((pillar) => (

@@ -10,17 +10,17 @@ export function CommunityCTA() {
               Community signal
             </p>
             <h2 className="mt-3 font-display text-3xl font-black text-white sm:text-5xl">
-              Follow the rebuild from day one.
+            Be part of the return.
             </h2>
             <p className="mt-4 max-w-2xl leading-7 text-steel">
-              Xenon needs players, editors, staff, creators and supporters who
-              want to help make 2027 feel alive before the first big win lands.
+              Follow the work, meet the people building it and find the lane
+              where you can contribute to Xenon&apos;s January return.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
-            <Button href="/join/staff">Join the team</Button>
-            <Button href="/contact" variant="secondary">
-              Contact us
+            <Button href="/join">Join Xenon</Button>
+            <Button href="/community" variant="secondary">
+              Explore community
             </Button>
           </div>
         </div>

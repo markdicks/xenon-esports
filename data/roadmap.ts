@@ -2,39 +2,45 @@ import type { RoadmapItem } from "@/types";
 
 export const roadmap: RoadmapItem[] = [
   {
-    quarter: "Q1 2027",
-    day: "01",
-    month: "JAN",
+    period: "Oct–Nov 2026",
     label: "Foundation",
-    title: "Foundation reset",
+    title: "Build the operating base",
     description:
-      "Lock in staff structure, identity, community channels and a clear operating rhythm.",
+      "Leadership, systems, content and community activity move from intent into a consistent operating rhythm.",
   },
   {
-    quarter: "Q2 2027",
-    day: "04",
-    month: "APR",
-    label: "Competitive",
-    title: "Competitive rebuild",
+    period: "Nov–Dec 2026",
+    label: "Build",
+    title: "Shape the launch lanes",
     description:
-      "Trial rosters, recruit coaches and enter the first wave of disciplined competitions.",
+      "Roster planning, creator outreach, broadcasts and events take shape with clear standards behind them.",
   },
   {
-    quarter: "Q3 2027",
-    day: "07",
-    month: "JUL",
-    label: "Creators",
-    title: "Creator engine",
+    period: "Dec 2026",
+    label: "Launch prep",
+    title: "Make the return tangible",
     description:
-      "Launch weekly content formats, creator spotlights and behind-the-scenes team stories.",
+      "Team and creator reveals, final content and test events prepare Xenon for a confident public return.",
   },
   {
-    quarter: "Q4 2027",
-    day: "10",
-    month: "OCT",
-    label: "Showcase",
-    title: "Xenon showcase",
+    period: "Jan 2027",
+    label: "Xenon returns",
+    title: "Relaunch with purpose",
     description:
-      "Host community events, review the season and publish the next competitive target.",
+      "Xenon returns with the competitive, creator and community work already moving behind the signal.",
+  },
+  {
+    period: "Q1 2027",
+    label: "Expand",
+    title: "Keep the momentum visible",
+    description:
+      "Competitive activity, creator growth and community events build a dependable rhythm after launch.",
+  },
+  {
+    period: "Q2 2027",
+    label: "Scale",
+    title: "Grow the strongest lanes",
+    description:
+      "Additional teams, creators, partnerships and larger events are explored where the foundation is ready.",
   },
 ];

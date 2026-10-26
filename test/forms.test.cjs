@@ -26,7 +26,7 @@ function contactForm() {
 }
 
 function staffForm() {
-  return formData({ discordUsername: "Sparky", timezone: "SAST", role: "Other / flexible",
+  return formData({ discordUsername: "Applicant Test", timezone: "SAST", role: "Other / flexible",
     weeklyAvailability: "Weekends", experience: "Editing", motivation: "Help Xenon",
     firstThirtyDaysGoal: "Grow", reliabilityExample: "On time", reasonMayLeave: "Work",
     unpaidVolunteerAcknowledgement: "on", email: "  ", portfolioUrl: "  ", supportNeeded: "  " });

@@ -5,9 +5,7 @@ export type Pillar = {
 };
 
 export type RoadmapItem = {
-  quarter: string;
-  day: string;
-  month: string;
+  period: string;
   title: string;
   description: string;
   label: string;
@@ -27,5 +25,6 @@ export type Role = {
   department: string;
   status: RoleStatus;
   description: string;
+  responsibilities: string[];
   holders: DiscordRosterMember[];
 };

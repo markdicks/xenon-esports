@@ -3,10 +3,13 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 
 const links = [
-  { href: "/#pillars", label: "Pillars" },
-  { href: "/roadmap", label: "Roadmap" },
-  { href: "/recruitment", label: "Recruitment" },
+  { href: "/", label: "Home" },
   { href: "/about", label: "About" },
+  { href: "/leadership", label: "Leadership" },
+  { href: "/competitive", label: "Competitive" },
+  { href: "/creators", label: "Creators" },
+  { href: "/community", label: "Community" },
+  { href: "/roadmap", label: "Roadmap" },
   { href: "/contact", label: "Contact" },
 ];
 
@@ -33,7 +36,7 @@ export function Navbar() {
             Xenon
           </span>
         </Link>
-        <div className="hidden items-center gap-7 md:flex">
+        <div className="hidden items-center gap-5 xl:flex">
           {links.map((link) => (
             <Link
               key={link.href}
@@ -44,10 +47,19 @@ export function Navbar() {
             </Link>
           ))}
         </div>
-        <Button href="/join/staff" className="hidden sm:inline-flex">
-          Join 2027
+        <Button href="/join" className="hidden sm:inline-flex">
+          Join Xenon
         </Button>
       </nav>
+      <div className="border-t border-white/10 px-5 py-2 xl:hidden sm:px-8">
+        <div className="mx-auto flex max-w-7xl gap-5 overflow-x-auto whitespace-nowrap pb-1">
+          {links.map((link) => (
+            <Link key={link.href} href={link.href} className="text-xs font-bold uppercase tracking-[0.12em] text-steel transition hover:text-white">
+              {link.label}
+            </Link>
+          ))}
+        </div>
+      </div>
     </header>
   );
 }

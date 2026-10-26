@@ -125,8 +125,13 @@ export function ContactForm() {
           />
         </Field>
 
-        <Field label="Subject" name="subject">
-          <input id="subject" name="subject" className={inputClass} maxLength={160} required />
+        <Field label="Category" name="subject">
+          <select id="subject" name="subject" className={inputClass} defaultValue="" required>
+            <option value="" disabled>Select a category</option>
+            {['Partnership', 'Competitive', 'Creator', 'Community', 'Media', 'Other'].map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
         </Field>
 
         <Field label="Message" name="message">

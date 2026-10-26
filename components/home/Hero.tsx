@@ -7,20 +7,19 @@ export function Hero() {
       <div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.08fr_0.92fr]">
         <div className="float-in">
           <p className="font-display text-xs font-bold uppercase tracking-[0.34em] text-ion">
-            Xenon Esports / 2027
+            Xenon Esports / October 2026
           </p>
           <h1 className="mt-5 max-w-5xl font-display text-5xl font-black leading-[0.95] text-white sm:text-7xl lg:text-8xl">
-            Build the next Xenon era.
+            XENON RETURNS <span className="text-ion">— JANUARY 2027</span>
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-steel sm:text-xl">
-            A sharper competitive organisation for players, creators, staff and
-            fans who want the grind to feel coordinated, visible and worth
-            following.
+            Competitive teams, creators, content and community — already moving
+            with purpose toward Xenon&apos;s next chapter.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <Button href="/join/staff">Apply to staff</Button>
-            <Button href="/roadmap" variant="secondary">
-              View roadmap
+            <Button href="#follow">Follow the rebuild</Button>
+            <Button href="/leadership" variant="secondary">
+              Meet the team
             </Button>
           </div>
         </div>
@@ -61,7 +60,7 @@ export function Hero() {
             </div>
             <div className="scanline pt-5">
               <p className="text-sm leading-6 text-steel">
-                Signal locked: the 2027 rebuild is coming online.
+                Signal locked: the January 2027 return is being built in public.
               </p>
             </div>
           </div>

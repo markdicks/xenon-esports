@@ -29,7 +29,7 @@ test("staff role cards use Discord nicknames and role assignments as their sourc
       guild: { id: "123", name: "Xenon HQ" },
       syncedAt: "2026-10-26T10:00:00.000Z",
       roles: [
-        { id: "founder", name: "Founder", exists: true, members: [{ id: "1", nickname: "Sparky XE", username: "sparky" }] },
+        { id: "founder", name: "Founder", exists: true, members: [{ id: "1", nickname: "Founder Test", username: "founder-test" }] },
         { id: "content-lead", name: "Content Lead", exists: true, members: [] },
       ],
     });
@@ -40,8 +40,8 @@ test("staff role cards use Discord nicknames and role assignments as their sourc
   const content = roles.find((role) => role.id === "content-lead");
 
   assert.equal(founder.status, "closed");
-  assert.equal(founder.holders[0].nickname, "Sparky XE");
-  assert.match(founder.description, /Held by Sparky XE/);
+  assert.equal(founder.holders[0].nickname, "Founder Test");
+  assert.match(founder.description, /Held by Founder Test/);
   assert.equal(content.status, "open");
 });
 
@@ -84,11 +84,11 @@ test("the About and recruitment pages share a recent verified roster when a late
   process.env.WEBSITE_BOT_TOKEN = "shared-secret";
   global.fetch = async () => Response.json({
     guild: { id: "123", name: "Xenon HQ" }, syncedAt: "2026-10-26T10:00:00.000Z",
-    roles: [{ id: "founder", name: "Founder", exists: true, members: [{ id: "1", nickname: "Sparky XE", username: "sparky" }] }],
+    roles: [{ id: "founder", name: "Founder", exists: true, members: [{ id: "1", nickname: "Founder Test", username: "founder-test" }] }],
   });
   await roster.getWebsiteRoster();
   global.fetch = async () => { throw new Error("Render restart"); };
   const fallback = await roster.getWebsiteRoster();
   assert.equal(fallback.source, "discord");
-  assert.equal(fallback.roles[0].members[0].nickname, "Sparky XE");
+  assert.equal(fallback.roles[0].members[0].nickname, "Founder Test");
 });
