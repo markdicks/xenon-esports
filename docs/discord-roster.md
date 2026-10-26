@@ -31,6 +31,11 @@ DISCORD_BOT_URL=https://<your-render-bot>.onrender.com
 
 Set the same `WEBSITE_BOT_TOKEN` and the intended `DISCORD_GUILD_ID` on the
 bot service. The bot must have Server Members Intent enabled and be connected.
+Run `sql/003_discord_role_links.sql` once before using the dashboard's manual
+role-link controls; it stores a per-server link without exposing it publicly.
+The website keeps the most recently verified roster briefly and retries a
+transient bot request, so a short Render or Discord delay does not turn staff
+availability into a syncing state on every page refresh.
 
 ## Tournaments, events and future showcases
 

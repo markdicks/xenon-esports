@@ -1,5 +1,6 @@
 import { staffRoleDefinitions } from "@/data/roles";
 import type { DiscordRosterMember, Role } from "@/types";
+import { unstable_cache } from "next/cache";
 
 type RemoteRole = {
   id: string;
@@ -56,25 +57,49 @@ function unavailableRoster(): WebsiteRoster {
   return { source: "unavailable", guild: null, syncedAt: null, roles: [] };
 }
 
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function fetchRemoteRoster(botUrl: string, token: string): Promise<RemoteRoster> {
+  const origin = new URL(botUrl);
+  const isLocal = ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname);
+  if (origin.protocol !== "https:" && !(origin.protocol === "http:" && isLocal)) throw new Error("Discord bot URL must use HTTPS.");
+  if (origin.username || origin.password) throw new Error("Discord bot URL must not include credentials.");
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(new URL("/api/website/roster", origin), {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+        signal: AbortSignal.timeout(25_000),
+      });
+      if (!response.ok) throw new Error(`Discord roster returned HTTP ${response.status}.`);
+      const roster = asRoster(await response.json());
+      if (!roster) throw new Error("Discord roster response was invalid.");
+      return roster;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await wait(600);
+    }
+  }
+  throw lastError;
+}
+
+// Cached independently from the page so a short Render/Discord outage keeps
+// showing the most recently verified roster instead of marking every role as syncing.
+const getCachedRemoteRoster = unstable_cache(fetchRemoteRoster, ["xenon-discord-roster-v1"], {
+  revalidate: 60,
+});
+
 export async function getWebsiteRoster(): Promise<WebsiteRoster> {
   const botUrl = process.env.DISCORD_BOT_URL;
   const token = process.env.WEBSITE_BOT_TOKEN;
   if (!botUrl || !token) return unavailableRoster();
 
   try {
-    const origin = new URL(botUrl);
-    const isLocal = ["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname);
-    if (origin.protocol !== "https:" && !(origin.protocol === "http:" && isLocal)) return unavailableRoster();
-    if (origin.username || origin.password) return unavailableRoster();
-
-    const response = await fetch(new URL("/api/website/roster", origin), {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!response.ok) return unavailableRoster();
-    const roster = asRoster(await response.json());
-    return roster ? { source: "discord", ...roster } : unavailableRoster();
+    return { source: "discord", ...await getCachedRemoteRoster(botUrl, token) };
   } catch {
     return unavailableRoster();
   }

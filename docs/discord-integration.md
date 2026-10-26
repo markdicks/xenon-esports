@@ -9,9 +9,11 @@ reference. Applicant text cannot trigger Discord mentions.
 
 ## Setup
 
-1. Run `sql/002_discord_deliveries.sql` once against the existing Hostinger
-   database, after `sql/001_initial.sql`. Existing submissions are marked as
-   historical so enabling the integration does not send old personal data.
+1. Run `sql/002_discord_deliveries.sql` and `sql/003_discord_role_links.sql`
+   once against the existing Hostinger database, after `sql/001_initial.sql`.
+   Existing submissions are marked as historical so enabling the integration
+   does not send old personal data. Role links persist manual Discord role
+   selections made in the bot dashboard.
 2. Set `WEBSITE_BOT_TOKEN` on the website to a strong randomly generated secret.
 3. In the bot service, set the same `WEBSITE_BOT_TOKEN`, `WEBSITE_URL` to the
    website's HTTPS origin, and `DISCORD_GUILD_ID` to the intended Xenon server ID.
