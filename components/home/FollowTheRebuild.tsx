@@ -1,6 +1,7 @@
-import { socialLinks } from "@/data/social";
+import { getSocialLinks } from "@/lib/public-socials";
 
-export function FollowTheRebuild() {
+export async function FollowTheRebuild() {
+  const socialLinks = await getSocialLinks();
   const liveLinks = socialLinks.filter((link) => link.href);
 
   return (
@@ -33,7 +34,7 @@ export function FollowTheRebuild() {
             );
           })}
         </div>
-        {!liveLinks.length ? <p className="mt-5 text-sm text-steel">Official social destinations will be added to the shared social configuration as each channel is confirmed.</p> : null}
+        {!liveLinks.length ? <p className="mt-5 text-sm text-steel">Official links will be shared here as each channel is confirmed.</p> : null}
       </div>
     </section>
   );

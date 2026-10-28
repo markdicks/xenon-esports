@@ -1,10 +1,14 @@
 import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/Button";
+import { getDiscordInvite } from "@/lib/public-socials";
 
-export default function JoinPage() {
+export const dynamic = "force-dynamic";
+
+export default async function JoinPage() {
+  const invite = await getDiscordInvite();
   const paths = [
-    ["Community", "Join the conversation, watch parties and game nights as Xenon’s community programme grows.", "/community", "Explore community"],
+    ["Community", "Join the conversation, watch parties and game nights as Xenon’s community programme grows.", invite ?? "/community", invite ? "Join our Discord" : "Explore community"],
     ["Creator interest", "Learn the creator standard and register your interest for future applications.", "/creators", "Creator direction"],
     ["Contributor interest", "Offer skills across content, community, operations or events without applying for a leadership seat.", "/join/staff", "Contribute"],
     ["Competitive interest", "See the developing Valorant and Rocket League direction before roster announcements are made.", "/competitive", "Competitive future"],
