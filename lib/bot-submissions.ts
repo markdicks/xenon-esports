@@ -3,7 +3,7 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { getDbPool } from "@/lib/db";
 
 export type BotSubmission = {
-  type: "application" | "contact";
+  type: "application" | "contact" | "interest";
   reference: string;
   leaseToken: string;
   deliveredUserIds: string[];
@@ -34,6 +34,12 @@ const contactFields = [
   ["message", "Message"],
 ] as const;
 
+const interestFields = [
+  ["discord_username", "Discord"],
+  ["interests", "Interested in"],
+  ["weekly_availability", "Availability"],
+] as const;
+
 function deliveredIds(value: unknown): string[] {
   const parsed = typeof value === "string" ? JSON.parse(value) : value;
   return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : [];
@@ -47,6 +53,8 @@ export async function claimBotSubmissions(): Promise<BotSubmission[]> {
       SELECT public_reference, 'application' AS submission_type, created_at FROM applications
       UNION ALL
       SELECT public_reference, 'contact' AS submission_type, created_at FROM contact_submissions
+      UNION ALL
+      SELECT reference_code AS public_reference, 'interest' AS submission_type, created_at FROM interest_submissions
     ) AS pending
     LEFT JOIN discord_submission_deliveries AS delivery
       ON delivery.public_reference = pending.public_reference
@@ -77,16 +85,22 @@ export async function claimBotSubmissions(): Promise<BotSubmission[]> {
     `, [leaseToken, reference]);
     if (!claim.affectedRows) continue;
 
-    const table = type === "application" ? "applications" : "contact_submissions";
+    const table = type === "application" ? "applications"
+      : type === "contact" ? "contact_submissions" : "interest_submissions";
+    const referenceColumn = type === "interest" ? "reference_code" : "public_reference";
+    const deliveryJoin = type === "interest"
+      ? "delivery.public_reference = submission.reference_code"
+      : "delivery.public_reference = submission.public_reference";
     const [rows] = await pool.execute<RowDataPacket[]>(`
       SELECT submission.*, delivery.delivered_user_ids
       FROM ${table} AS submission
-      JOIN discord_submission_deliveries AS delivery USING (public_reference)
-      WHERE submission.public_reference = ?
+      JOIN discord_submission_deliveries AS delivery ON ${deliveryJoin}
+      WHERE submission.${referenceColumn} = ?
     `, [reference]);
     if (!rows[0]) continue;
     const row = rows[0];
-    const definitions = type === "application" ? applicationFields : contactFields;
+    const definitions = type === "application" ? applicationFields
+      : type === "contact" ? contactFields : interestFields;
     submissions.push({
       type,
       reference,
@@ -94,13 +108,25 @@ export async function claimBotSubmissions(): Promise<BotSubmission[]> {
       deliveredUserIds: deliveredIds(row.delivered_user_ids),
       fields: definitions.map(([key, label]) => ({
         label,
-        value: key === "unpaid_volunteer_acknowledgement"
+        value: key === "interests"
+          ? interestNames(row[key])
+          : key === "unpaid_volunteer_acknowledgement"
           ? (row[key] ? "Yes" : "No")
           : String(row[key] ?? "Not provided"),
       })),
     });
   }
   return submissions;
+}
+
+function interestNames(value: unknown) {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (!Array.isArray(parsed)) return "Not provided";
+    return parsed.filter((item): item is string => typeof item === "string").join(", ") || "Not provided";
+  } catch {
+    return "Not provided";
+  }
 }
 
 export async function recordBotDelivery(result: {

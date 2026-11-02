@@ -22,7 +22,7 @@ export default function CompetitivePage() {
               </article>
             ))}
           </div>
-          <div className="mt-8 rounded-lg border border-ion/30 bg-ion/[0.08] p-7 sm:flex sm:items-center sm:justify-between sm:gap-8"><div><h2 className="font-display text-2xl font-black text-white">No unsigned rosters. No placeholder announcements.</h2><p className="mt-3 max-w-3xl leading-7 text-steel">Player and roster announcements will happen closer to launch, when there is something real to show.</p></div><Button href="/join">Register competitive interest</Button></div>
+          <div className="mt-8 rounded-lg border border-ion/30 bg-ion/[0.08] p-7 sm:flex sm:items-center sm:justify-between sm:gap-8"><div><h2 className="font-display text-2xl font-black text-white">No unsigned rosters. No placeholder announcements.</h2><p className="mt-3 max-w-3xl leading-7 text-steel">Player and roster announcements will happen closer to launch. Share your interest now without needing a formal tryout.</p></div><Button href="/join/interest?areas=Competitive">Get involved</Button></div>
         </div>
       </section>
       <Footer />

@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/Button";
+import { DISCORD_INVITE_URL } from "@/lib/public-links";
 
 export function CommunityCTA() {
   return (
@@ -13,14 +14,14 @@ export function CommunityCTA() {
             Be part of the return.
             </h2>
             <p className="mt-4 max-w-2xl leading-7 text-steel">
-              Follow the work, meet the people building it and find the lane
-              where you can contribute to Xenon&apos;s January return.
+              Join the community on Discord, or tell us what you would like to
+              bring to Xenon. You do not need to know where you fit yet.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
-            <Button href="/join">Join Xenon</Button>
-            <Button href="/community" variant="secondary">
-              Explore community
+            <Button href="/join">Get involved</Button>
+            <Button href={DISCORD_INVITE_URL} target="_blank" rel="noreferrer" variant="secondary">
+              Join Discord
             </Button>
           </div>
         </div>

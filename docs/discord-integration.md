@@ -1,16 +1,18 @@
 # Discord submission delivery
 
 The bot polls the website's protected `/api/bot/submissions` endpoint every 30
-seconds. Staff applications are privately sent to members with **Founder** or
-**Head of Operations** in the configured server. Contact enquiries go to members
-with **Help**. A member holding both application roles receives one message.
-All submitted fields are included in a UTF-8 text attachment with the public
-reference. Applicant text cannot trigger Discord mentions.
+seconds. Staff applications and short interest notifications are privately sent
+to members with **Founder** or **Head of Operations** in the configured server.
+Contact enquiries go to members with **Help**. Interest notifications contain
+only the reference, Discord username, selected interests and availability. They
+never include email, portfolio links or long-form answers. Applicant text cannot
+trigger Discord mentions.
 
 ## Setup
 
-1. Run `sql/002_discord_deliveries.sql` and `sql/003_discord_role_links.sql`
-   once against the existing Hostinger database, after `sql/001_initial.sql`.
+1. Run `sql/002_discord_deliveries.sql`, `sql/003_discord_role_links.sql`, and
+   `sql/005_interest_submissions.sql` once against the existing Hostinger
+   database, after `sql/001_initial.sql`.
    Existing submissions are marked as historical so enabling the integration
    does not send old personal data. Role links persist manual Discord role
    selections made in the bot dashboard.
@@ -24,8 +26,8 @@ reference. Applicant text cannot trigger Discord mentions.
    recipients in the bot dashboard. Missing roles are created when assigned,
    with no extra Discord permissions.
 5. Recipients must allow direct messages from server members. Submit one new
-   application and contact enquiry, then verify the DMs and delivery activity
-   in the bot logs. The website continues to return the reference inline.
+   application, interest form and contact enquiry, then verify the DMs and
+   delivery activity in the bot logs. The website returns each reference inline.
 
 ## Delivery behavior
 

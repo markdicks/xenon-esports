@@ -2,7 +2,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const loadTypeScript = require("./load-typescript.cjs");
 
-const validation = loadTypeScript("lib/validation.ts");
+const interestAreas = loadTypeScript("data/interest-areas.ts");
+const validation = loadTypeScript("lib/validation.ts", { "@/data/interest-areas": interestAreas });
 const formResults = loadTypeScript("lib/form-results.ts");
 const { handleFormSubmission } = loadTypeScript("lib/form-route.ts");
 
@@ -18,7 +19,8 @@ function fixture(failDatabase = false) {
   };
   return { inserts,
     ...loadTypeScript("lib/contact-submissions.ts", overrides),
-    ...loadTypeScript("lib/staff-submissions.ts", overrides) };
+    ...loadTypeScript("lib/staff-submissions.ts", overrides),
+    ...loadTypeScript("lib/interest-submissions.ts", overrides) };
 }
 
 function contactForm() {
@@ -32,9 +34,17 @@ function staffForm() {
     unpaidVolunteerAcknowledgement: "on", email: "  ", portfolioUrl: "  ", supportNeeded: "  " });
 }
 
+function interestForm() {
+  return formData({ discordUsername: "Xenon fan", areasOfInterest: ["Streaming", "Not sure yet"],
+    introduction: "  ", strengths: "Editing", goals: "Learn to stream", weeklyAvailability: "3–5 hours" });
+}
+
 function formData(values) {
   const form = new FormData();
-  for (const [name, value] of Object.entries(values)) form.set(name, value);
+  for (const [name, value] of Object.entries(values)) {
+    if (Array.isArray(value)) value.forEach((item) => form.append(name, item));
+    else form.set(name, value);
+  }
   return form;
 }
 
@@ -66,6 +76,36 @@ test("filled short staff answers and blank optional fields save with the acknowl
   assert.equal(inserts[0].values[13], true);
 });
 
+test("interest submissions accept a low-friction introduction and store only parameterized values", async () => {
+  const { submitInterestForm, inserts } = fixture();
+  const response = await handleFormSubmission(formRequest(interestForm()), submitInterestForm);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { success: true, reference: "XEN-INT-A7K42P" });
+  assert.equal(inserts.length, 1);
+  assert.deepEqual(inserts[0].values, ["XEN-INT-A7K42P", "Xenon fan", null,
+    '["Streaming","Not sure yet"]', null, "Editing", "Learn to stream", "3–5 hours", null]);
+  assert.match(inserts[0].sql, /VALUES \(\?, \?, \?, \?, \?, \?, \?, \?, \?\)/);
+});
+
+test("interest validation requires a Discord name and valid interest selections", async () => {
+  const { submitInterestForm, inserts } = fixture();
+  const form = interestForm();
+  form.delete("discordUsername");
+  form.set("areasOfInterest", "Unknown internal role");
+  const result = await submitInterestForm(form);
+  assert.equal(result.success, false);
+  assert.ok(result.fieldErrors.discordUsername);
+  assert.ok(result.fieldErrors.areasOfInterest);
+  assert.equal(inserts.length, 0);
+
+  const duplicated = interestForm();
+  duplicated.append("areasOfInterest", "Streaming");
+  const duplicateResult = await submitInterestForm(duplicated);
+  assert.equal(duplicateResult.success, false);
+  assert.match(duplicateResult.fieldErrors.areasOfInterest[0], /duplicate/);
+  assert.equal(inserts.length, 0);
+});
+
 test("invalid enquiries return exact field errors and never call MySQL", async () => {
   const { submitContactForm, inserts } = fixture();
   const form = contactForm();
@@ -92,10 +132,11 @@ test("staff applications still require acknowledgement and respect database colu
 });
 
 test("honeypots return references without database inserts or bot deliveries", async () => {
-  const { submitContactForm, submitStaffApplication, inserts } = fixture();
+  const { submitContactForm, submitStaffApplication, submitInterestForm, inserts } = fixture();
   const form = formData({ website: "spam" });
   assert.equal((await submitContactForm(form)).success, true);
   assert.equal((await submitStaffApplication(form)).success, true);
+  assert.equal((await submitInterestForm(form)).success, true);
   assert.equal(inserts.length, 0);
 });
 

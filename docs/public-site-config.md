@@ -8,15 +8,19 @@ driver, database credentials, additional database or remote MySQL access.
 
 1. Run `./sql/004_site_config.sql` once in the **existing website database**, using
    the same Hostinger migration/phpMyAdmin workflow as the other SQL files.
-2. Set a new strong random secret as `INTERNAL_BOT_API_KEY` in the website's
+2. Set `NEXT_PUBLIC_DISCORD_URL` to `https://discord.gg/2XwuujbuNT` in the
+   website's Hostinger environment and redeploy so the shared public invite is
+   present in every CTA. The source has the same safe default if the variable is
+   missing. This is public link configuration, not a secret.
+3. Set a new strong random secret as `INTERNAL_BOT_API_KEY` in the website's
    server environment and the same value as `XENON_INTERNAL_API_KEY` in Render's
    bot environment. This key is separate from `WEBSITE_BOT_TOKEN`. Set the bot's
    `XENON_API_URL=https://xenonesports.online`. Never put real keys in source or
    either `.env.example` file.
-3. Keep the existing bot `DISCORD_GUILD_ID`, `WEBSITE_URL` and `WEBSITE_BOT_TOKEN`
+4. Keep the existing bot `DISCORD_GUILD_ID`, `WEBSITE_URL` and `WEBSITE_BOT_TOKEN`
    settings. Deploy both projects. The bot registers `/social` only in that
    configured Discord server. Its invite must include `applications.commands`.
-4. Set stable role IDs for Founder, Content Lead and/or Creator Director using
+5. Set stable role IDs for Founder, Content Lead and/or Creator Director using
    the bot's `./config/social-permissions.json`, or the existing dashboard's
    **Roles → Sync roles → manual link** for those leadership seats. Explicit IDs
    override saved links for the same seat. Automatic role-name matching alone
@@ -65,6 +69,11 @@ link. The trusted bot derives the actor from a freshly fetched Discord member;
 the API authenticates the bot and validates the key, value and actor. The API
 does not accept arbitrary SQL, table names or other config keys.
 
+The public Xenon invite is intentionally sourced from `NEXT_PUBLIC_DISCORD_URL`
+so every community CTA stays consistent. The legacy `discord.invite` key remains
+accepted for backward compatibility with existing bot installations, but does
+not override the shared public invite.
+
 Every successful POST, including a removal or an unchanged value, commits the
 config row and an audit entry in one transaction. Per-key locking serializes
 concurrent first writes so each audit records the correct previous value.
@@ -75,14 +84,15 @@ and does not automatically retry writes whose response was lost. Use
 
 ## Public rendering and fallbacks
 
-The homepage's Follow the Rebuild section and Discord join buttons on Community
-and Join Xenon read MySQL on the server for each request. Updates and removals
-appear on the next page request without rebuilding or redeploying. Labels,
-descriptions and design constants stay in `./data/social.ts`.
+Set `NEXT_PUBLIC_DISCORD_URL=https://discord.gg/2XwuujbuNT` in the website
+environment. The same validated shared value drives every Discord/community
+CTA and the Discord social link. If it is unset or invalid, the site uses that
+same invite as its default. Social destinations for Twitch, YouTube, TikTok and
+Instagram remain DB-backed and are read server-side; labels and descriptions
+stay in `./data/social.ts`.
 
-Unset links render as non-clickable cards. Missing invites keep the existing
-internal Join/Community destinations. Database outages or a migration that has
-not been applied use those same safe public fallbacks. The protected API instead
+Unset social links render as non-clickable cards. Database outages or a missing
+social-links migration do not block the public site. The protected API instead
 returns a generic 503, so the bot never confirms an unsuccessful change.
 
 Verification: `npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build`.

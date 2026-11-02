@@ -130,6 +130,7 @@ test("public links reflect committed changes and removals on the next read", asy
   const db = database(), service = loadService(db);
   const publicSocials = loadTypeScript("lib/public-socials.ts", {
     "server-only": {}, "@/data/social": loadTypeScript("data/social.ts"), "@/lib/site-config": service,
+    "@/lib/public-links": { DISCORD_INVITE_URL: "https://discord.gg/2XwuujbuNT" },
   });
   const readLink = async () => (await publicSocials.getSocialLinks()).find((link) => link.configKey === "social.tiktok").href;
   assert.equal(await readLink(), null);
@@ -138,17 +139,22 @@ test("public links reflect committed changes and removals on the next read", asy
   await service.setConfig("social.tiktok", null, actor);
   assert.equal(await readLink(), null);
   await service.setConfig("discord.invite", "https://discord.gg/xenon", actor);
-  assert.equal(await publicSocials.getDiscordInvite(), "https://discord.gg/xenon");
+  const socialLinks = await publicSocials.getSocialLinks();
+  assert.equal(socialLinks.find((link) => link.configKey === "discord.invite").href, "https://discord.gg/2XwuujbuNT");
+  assert.equal(await publicSocials.getDiscordInvite(), "https://discord.gg/2XwuujbuNT");
 });
 
 test("public social components keep safe fallbacks during a database outage", async () => {
   const links = loadTypeScript("data/social.ts");
   const publicSocials = loadTypeScript("lib/public-socials.ts", {
     "server-only": {}, "@/data/social": links,
-    "@/lib/site-config": { getConfigs: async () => { throw new Error("unavailable"); }, getConfig: async () => null },
+    "@/lib/site-config": { getConfigs: async () => { throw new Error("unavailable"); } },
+    "@/lib/public-links": { DISCORD_INVITE_URL: "https://discord.gg/2XwuujbuNT" },
   });
-  assert.equal((await publicSocials.getSocialLinks()).every((link) => link.href === null), true);
-  assert.equal(await publicSocials.getDiscordInvite(), null);
+  const socialLinks = await publicSocials.getSocialLinks();
+  assert.equal(socialLinks.find((link) => link.configKey === "discord.invite").href, "https://discord.gg/2XwuujbuNT");
+  assert.equal(socialLinks.filter((link) => link.configKey !== "discord.invite").every((link) => link.href === null), true);
+  assert.equal(await publicSocials.getDiscordInvite(), "https://discord.gg/2XwuujbuNT");
 });
 
 test("internal API authenticates first, bounds streamed input and hides all database errors", async (t) => {

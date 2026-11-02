@@ -128,7 +128,7 @@ export function ContactForm() {
         <Field label="Category" name="subject">
           <select id="subject" name="subject" className={inputClass} defaultValue="" required>
             <option value="" disabled>Select a category</option>
-            {['Partnership', 'Competitive', 'Creator', 'Community', 'Media', 'Other'].map((category) => (
+            {['Partnerships', 'Business', 'Media', 'General enquiry'].map((category) => (
               <option key={category} value={category}>{category}</option>
             ))}
           </select>

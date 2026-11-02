@@ -16,11 +16,12 @@ export default function ContactPage() {
               Send Xenon a signal.
             </h1>
             <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-steel sm:text-lg">
-              Partnerships, competitive questions, creator enquiries, community
-              ideas and media requests all start here.
+              Use this form for partnerships, business, media and general
+              enquiries. To join, compete, create or help, start at Get Involved.
             </p>
           </div>
 
+          <p className="mb-6 text-center text-sm text-steel"><a className="font-bold text-ion underline-offset-4 hover:underline" href="/join">Get involved with Xenon</a></p>
           <ContactForm />
         </div>
       </section>

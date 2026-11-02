@@ -1,0 +1,15 @@
+export const interestAreas = [
+  "Competitive",
+  "Streaming",
+  "Content creation",
+  "Video editing",
+  "Graphics",
+  "Community/events",
+  "Moderation",
+  "Operations",
+  "Casting/broadcasting",
+  "Development/technical",
+  "Partnerships/networking",
+  "Not sure yet",
+  "Other",
+] as const;

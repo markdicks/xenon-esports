@@ -1,16 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { DISCORD_INVITE_URL } from "@/lib/public-links";
 
 const links = [
-  { href: "/", label: "Home" },
   { href: "/about", label: "About" },
-  { href: "/leadership", label: "Leadership" },
   { href: "/competitive", label: "Competitive" },
   { href: "/creators", label: "Creators" },
   { href: "/community", label: "Community" },
-  { href: "/roadmap", label: "Roadmap" },
-  { href: "/contact", label: "Contact" },
+  { href: "/updates", label: "Updates" },
 ];
 
 export function Navbar() {
@@ -32,7 +30,7 @@ export function Navbar() {
               priority
             />
           </span>
-          <span className="font-display text-lg font-black uppercase tracking-[0.22em] text-white">
+          <span className="hidden font-display text-lg font-black uppercase tracking-[0.22em] text-white sm:block">
             Xenon
           </span>
         </Link>
@@ -47,11 +45,20 @@ export function Navbar() {
             </Link>
           ))}
         </div>
-        <Button href="/join" className="hidden sm:inline-flex">
-          Join Xenon
-        </Button>
+        <div className="hidden shrink-0 items-center gap-2 sm:flex">
+          <Button href={DISCORD_INVITE_URL} target="_blank" rel="noreferrer" variant="secondary" className="min-h-10 px-2.5 text-[10px] sm:px-4 sm:text-xs">
+            Join Discord
+          </Button>
+          <Button href="/join" className="min-h-10 px-2.5 text-[10px] sm:px-4 sm:text-xs">
+            Get involved
+          </Button>
+        </div>
       </nav>
-      <div className="border-t border-white/10 px-5 py-2 xl:hidden sm:px-8">
+      <div className="grid grid-cols-2 gap-2 border-t border-white/10 px-5 py-2 sm:hidden">
+        <Button href="/join" className="w-full !min-h-11 !px-2 !text-xs !tracking-normal whitespace-nowrap">Get involved</Button>
+        <Button href={DISCORD_INVITE_URL} target="_blank" rel="noreferrer" variant="secondary" className="w-full !min-h-11 !px-2 !text-xs !tracking-normal whitespace-nowrap">Join Discord</Button>
+      </div>
+      <div className="border-t border-white/10 px-5 py-2 sm:px-8 xl:hidden">
         <div className="mx-auto flex max-w-7xl gap-5 overflow-x-auto whitespace-nowrap pb-1">
           {links.map((link) => (
             <Link key={link.href} href={link.href} className="text-xs font-bold uppercase tracking-[0.12em] text-steel transition hover:text-white">

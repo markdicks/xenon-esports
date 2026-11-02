@@ -28,7 +28,7 @@ export async function GET(request: Request) {
 }
 
 const receiptSchema = z.object({
-  reference: z.string().regex(/^XEN-(APP|CON)-[A-Z0-9]{6}$/),
+  reference: z.string().regex(/^XEN-(APP|CON|INT)-[A-Z0-9]{6}$/),
   leaseToken: z.string().uuid(),
   deliveredUserIds: z.array(z.string().regex(/^\d{17,20}$/)).max(10000),
   complete: z.boolean(),

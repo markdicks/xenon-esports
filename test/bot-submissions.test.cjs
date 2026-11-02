@@ -43,6 +43,32 @@ test("contact submissions expose only contact fields", async () => {
   assert.deepEqual(submission.deliveredUserIds, []);
 });
 
+test("interest submissions queue only short routing fields and keep long answers private", async () => {
+  const pool = {
+    query: async (sql) => {
+      assert.match(sql, /reference_code AS public_reference, 'interest'/);
+      return [[{ public_reference: "XEN-INT-A7K42P", submission_type: "interest" }]];
+    },
+    execute: async (sql) => sql.includes("SELECT")
+      ? [[{ discord_username: "Player#1234", interests: '["Streaming","Not sure yet"]',
+        weekly_availability: "3–5 hours", email: "private@example.com", introduction: "Long private answer",
+        delivered_user_ids: null }]]
+      : [{ affectedRows: 1 }],
+  };
+  const { claimBotSubmissions } = loadTypeScript("lib/bot-submissions.ts", {
+    "@/lib/db": { getDbPool: () => pool },
+  });
+  const [submission] = await claimBotSubmissions();
+  assert.equal(submission.type, "interest");
+  assert.equal(submission.reference, "XEN-INT-A7K42P");
+  assert.deepEqual(submission.fields, [
+    { label: "Discord", value: "Player#1234" },
+    { label: "Interested in", value: "Streaming, Not sure yet" },
+    { label: "Availability", value: "3–5 hours" },
+  ]);
+  assert.doesNotMatch(JSON.stringify(submission), /private@example|Long private answer/);
+});
+
 test("bot API rejects missing or incorrect secrets without loading submissions", async (t) => {
   const original = process.env.WEBSITE_BOT_TOKEN;
   t.after(() => { if (original === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = original; });
@@ -85,6 +111,7 @@ test("delivery acknowledgements validate input and reject stale leases", async (
   assert.equal((await api.POST(request(receipt))).status, 409);
   assert.deepEqual(receipts[0], receipt);
   assert.equal((await api.POST(request({ ...receipt, complete: true, release: false }))).status, 400);
+  assert.equal((await api.POST(request({ ...receipt, reference: "XEN-INT-A7K42P" }))).status, 409);
 });
 
 test("delivery receipt query binds references and retains the lease for progress updates", async () => {

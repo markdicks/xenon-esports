@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { interestAreas } from "@/data/interest-areas";
 
 const optionalEmail = z.preprocess(
   (value) => (typeof value === "string" ? value.trim() || undefined : value),
@@ -22,6 +23,16 @@ const requiredShortText = (label: string, max = 160) =>
 const requiredLongText = (label: string, max = 4000) =>
   z.string().trim().min(1, `${label} is required.`)
     .max(max, `${label} must contain no more than ${max} characters.`);
+
+const optionalLongText = (label: string, max: number) => z.preprocess(
+  (value) => (typeof value === "string" ? value.trim() || undefined : value),
+  z.string().trim().max(max, `${label} must contain no more than ${max} characters.`).optional(),
+);
+
+const optionalShortText = (label: string, max: number) => z.preprocess(
+  (value) => (typeof value === "string" ? value.trim() || undefined : value),
+  z.string().trim().max(max, `${label} must contain no more than ${max} characters.`).optional(),
+);
 
 export const staffApplicationSchema = z.object({
   discordUsername: requiredShortText("Discord username", 120),
@@ -50,5 +61,20 @@ export const contactSubmissionSchema = z.object({
   message: requiredLongText("Message"),
 });
 
+export const interestSubmissionSchema = z.object({
+  discordUsername: requiredShortText("Discord username", 120),
+  email: optionalEmail,
+  areasOfInterest: z.array(z.enum(interestAreas))
+    .min(1, "Select at least one area of interest.")
+    .max(interestAreas.length)
+    .refine((values) => new Set(values).size === values.length, "Remove duplicate areas of interest."),
+  introduction: optionalLongText("Introduction", 600),
+  strengths: optionalLongText("Strengths", 800),
+  goals: optionalLongText("Goals", 800),
+  weeklyAvailability: optionalShortText("Weekly availability", 120),
+  portfolioUrl: optionalUrl,
+});
+
 export type StaffApplicationInput = z.infer<typeof staffApplicationSchema>;
 export type ContactSubmissionInput = z.infer<typeof contactSubmissionSchema>;
+export type InterestSubmissionInput = z.infer<typeof interestSubmissionSchema>;

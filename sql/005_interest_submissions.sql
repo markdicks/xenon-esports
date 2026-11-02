@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS interest_submissions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  reference_code VARCHAR(32) NOT NULL,
+  discord_username VARCHAR(120) NOT NULL,
+  email VARCHAR(255) NULL,
+  interests JSON NOT NULL,
+  introduction TEXT NULL,
+  strengths TEXT NULL,
+  goals TEXT NULL,
+  weekly_availability VARCHAR(120) NULL,
+  portfolio_url VARCHAR(500) NULL,
+  status VARCHAR(24) NOT NULL DEFAULT 'new',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY interest_submissions_reference_unique (reference_code),
+  KEY interest_submissions_created_at_idx (created_at),
+  KEY interest_submissions_status_created_idx (status, created_at),
+  KEY interest_submissions_discord_username_idx (discord_username)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

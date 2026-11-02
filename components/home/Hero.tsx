@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/Button";
+import { DISCORD_INVITE_URL } from "@/lib/public-links";
 
 export function Hero() {
   return (
@@ -7,19 +8,20 @@ export function Hero() {
       <div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[1.08fr_0.92fr]">
         <div className="float-in">
           <p className="font-display text-xs font-bold uppercase tracking-[0.34em] text-ion">
-            Xenon Esports / October 2026
+            Xenon Esports / Returning January 2027
           </p>
           <h1 className="mt-5 max-w-5xl font-display text-5xl font-black leading-[0.95] text-white sm:text-7xl lg:text-8xl">
             XENON RETURNS <span className="text-ion">— JANUARY 2027</span>
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-steel sm:text-xl">
-            Competitive teams, creators, content and community — already moving
-            with purpose toward Xenon&apos;s next chapter.
+            An esports organisation bringing competitive teams, creators and
+            community together. The return is being built in public, and there&apos;s
+            more than one way to be part of it.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
-            <Button href="#follow">Follow the rebuild</Button>
-            <Button href="/leadership" variant="secondary">
-              Meet the team
+            <Button href="/join">Get involved</Button>
+            <Button href={DISCORD_INVITE_URL} target="_blank" rel="noreferrer" variant="secondary">
+              Join Discord
             </Button>
           </div>
         </div>

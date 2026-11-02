@@ -2,7 +2,7 @@ import { randomBytes } from "crypto";
 
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-export function generatePublicReference(prefix: "APP" | "CON") {
+export function generatePublicReference(prefix: "APP" | "CON" | "INT") {
   const bytes = randomBytes(6);
   const suffix = Array.from(bytes, (byte) => alphabet[byte % alphabet.length])
     .join("")
