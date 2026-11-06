@@ -9,6 +9,10 @@ const permissions = z.array(z.enum([
   "ViewChannel", "SendMessages", "ReadMessageHistory", "AddReactions", "AttachFiles", "EmbedLinks",
   "Connect", "Speak", "Stream", "UseVAD", "ManageMessages", "MuteMembers", "DeafenMembers", "MoveMembers",
 ])).max(14).refine((values) => new Set(values).size === values.length);
+const leadAccessSchema = z.object({
+  channelId: id, roleId: id, managed: permissions, allow: permissions, deny: permissions,
+}).strict().refine((entry) => entry.allow.every((key) => entry.managed.includes(key) && !entry.deny.includes(key))
+  && entry.deny.every((key) => entry.managed.includes(key)));
 const pillarSchema = z.object({
     key: z.enum(pillarKeys),
     leadRoleId: id.nullable(),
@@ -21,9 +25,14 @@ const pillarSchema = z.object({
     pendingChannels: z.array(z.object({
       id: z.string().uuid(), parentId: id, name: z.string().min(1).max(100), type: z.union([z.literal(0), z.literal(2)]),
     }).strict()).max(200).default([]),
+    leadAccess: z.array(leadAccessSchema).max(1000).refine(
+      (entries) => new Set(entries.map((entry) => `${entry.channelId}:${entry.roleId}`)).size === entries.length,
+    ).default([]),
+    leadAccessPending: z.boolean().default(false),
 }).strict();
 export const managementSchema = z.object({
-  pillars: z.array(pillarSchema).length(pillarKeys.length).refine((pillars) => new Set(pillars.map((pillar) => pillar.key)).size === pillarKeys.length),
+  pillars: z.array(pillarSchema).length(pillarKeys.length).refine((pillars) => new Set(pillars.map((pillar) => pillar.key)).size === pillarKeys.length
+    && pillars.reduce((total, pillar) => total + pillar.leadAccess.length, 0) <= 1000),
 }).strict();
 const storedManagementSchema = z.union([
   managementSchema,
@@ -31,7 +40,7 @@ const storedManagementSchema = z.union([
     pillars: z.array(pillarSchema).length(pillarKeys.length - 1).refine(
       (pillars) => !pillars.some((pillar) => pillar.key === "staff") && new Set(pillars.map((pillar) => pillar.key)).size === pillarKeys.length - 1,
     ).transform((pillars) => [...pillars, {
-      key: "staff" as const, leadRoleId: null, targets: [], permissions: [], subroles: [], pendingChannels: [],
+      key: "staff" as const, leadRoleId: null, targets: [], permissions: [], subroles: [], pendingChannels: [], leadAccess: [], leadAccessPending: false,
     }]),
   }),
 ]);

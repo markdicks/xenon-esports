@@ -66,3 +66,8 @@ Configure Discord OAuth and administrator role IDs in the bot service; never
 put OAuth secrets or the bot integration token in `NEXT_PUBLIC_` variables.
 Existing five-pillar records load with Staff unassigned and retain all saved
 role, category and channel restrictions. No extra SQL migration is required.
+The configuration also records prior lead-role channel overwrite values and
+pending permission syncs. Saving access in the bot grants the selected ordinary
+channel permissions to the linked lead role; removing access restores only
+dashboard-managed changes. Deploy the website API before the matching bot fix,
+then resave existing pillar access to apply previously stored ceilings.

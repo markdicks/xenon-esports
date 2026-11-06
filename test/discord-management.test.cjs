@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const loadTypeScript = require("./load-typescript.cjs");
 const config = { pillars: ["content", "operations", "competitive", "creators", "community", "staff"].map((key) => ({
-  key, leadRoleId: null, targets: [], permissions: [], subroles: [], pendingChannels: [],
+  key, leadRoleId: null, targets: [], permissions: [], subroles: [], pendingChannels: [], leadAccess: [], leadAccessPending: false,
 })) };
 
 test("management API requires the internal bot secret and validates scope documents", async (t) => {
@@ -66,4 +66,35 @@ test("management storage uses parameterized SQL and revision-based compare-and-s
   assert.equal(await management.saveManagementConfig("111111111111111111", saved, config, "222222222222222222"), null);
   assert.match(queries[1][0], /WHERE guild_id = \? AND revision = \?/);
   assert.equal(queries[1][1][4], saved);
+});
+
+test("lead permission ownership defaults safely for old records and validates supported baseline flags", async () => {
+  const management = loadTypeScript("lib/discord-management.ts", { "@/lib/db": { getDbPool: () => { throw new Error("Unexpected DB access"); } } });
+  const legacy = structuredClone(config);
+  legacy.pillars.forEach((pillar) => { delete pillar.leadAccess; delete pillar.leadAccessPending; });
+  const parsed = management.managementSchema.parse(legacy);
+  assert.ok(parsed.pillars.every((pillar) => pillar.leadAccess.length === 0 && pillar.leadAccessPending === false));
+  const entry = { channelId: "111111111111111111", roleId: "222222222222222222", managed: ["ViewChannel"], allow: [], deny: ["ViewChannel"] };
+  parsed.pillars[0].leadAccess = [entry]; parsed.pillars[0].leadAccessPending = true;
+  assert.equal(management.managementSchema.safeParse(parsed).success, true);
+  entry.managed = ["Administrator"];
+  assert.equal(management.managementSchema.safeParse(parsed).success, false);
+  entry.managed = ["ViewChannel"]; entry.allow = ["SendMessages"];
+  assert.equal(management.managementSchema.safeParse(parsed).success, false);
+  entry.allow = []; parsed.pillars[0].leadAccess.push(structuredClone(entry));
+  assert.equal(management.managementSchema.safeParse(parsed).success, false);
+});
+
+test("management API bounds streamed permission ownership data even without Content-Length", async (t) => {
+  const previous = process.env.WEBSITE_BOT_TOKEN;
+  t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
+  process.env.WEBSITE_BOT_TOKEN = "management-test";
+  let writes = 0;
+  const management = loadTypeScript("lib/discord-management.ts", { "@/lib/db": { getDbPool: () => { throw new Error("Unexpected DB access"); } } });
+  const api = loadTypeScript("app/api/bot/management/route.ts", { "@/lib/discord-management": { ...management, saveManagementConfig: async () => { writes++; } } });
+  const request = new Request("https://xenon.example/api/bot/management", { method: "PUT", duplex: "half",
+    headers: { Authorization: "Bearer management-test" },
+    body: new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(1_000_001)); controller.close(); } }),
+  });
+  assert.equal((await api.PUT(request)).status, 413); assert.equal(writes, 0);
 });
