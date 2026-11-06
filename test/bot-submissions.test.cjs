@@ -129,3 +129,63 @@ test("delivery receipt query binds references and retains the lease for progress
   assert.match(recorded.sql, /lease_token = IF\(\?, NULL, lease_token\)/);
   assert.deepEqual(recorded.params, ['["111111111111111111"]', false, false, false, false, "XEN-APP-A7K42P", "lease-token"]);
 });
+
+test("submission route API protects reads and persists validated multi-role routes", async (t) => {
+  const original = process.env.WEBSITE_BOT_TOKEN;
+  t.after(() => { if (original === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = original; });
+  process.env.WEBSITE_BOT_TOKEN = "test-secret";
+  const saved = [];
+  const routes = {
+    application: ["111111111111111111", "222222222222222222"],
+    interest: ["111111111111111111"],
+    "contact-partnerships": ["333333333333333333"],
+    "contact-business": ["333333333333333333"],
+    "contact-media": [],
+    "contact-general-enquiry": ["444444444444444444"],
+  };
+  const api = loadTypeScript("app/api/bot/submission-routes/route.ts", {
+    "@/lib/discord-submission-routes": {
+      getDiscordSubmissionRoutes: async () => ({ configured: true, routes }),
+      saveDiscordSubmissionRoutes: async (guildId, value) => saved.push({ guildId, value }),
+    },
+  });
+  const url = "https://xenon.example/api/bot/submission-routes?guildId=111111111111111111";
+  assert.equal((await api.GET(new Request(url))).status, 401);
+  const headers = { Authorization: "Bearer test-secret", "Content-Type": "application/json" };
+  const loaded = await api.GET(new Request(url, { headers }));
+  assert.equal(loaded.status, 200);
+  assert.deepEqual(await loaded.json(), { configured: true, routes });
+
+  const request = (body) => new Request("https://xenon.example/api/bot/submission-routes", {
+    method: "PUT", headers, body: JSON.stringify(body),
+  });
+  assert.equal((await api.PUT(request({ guildId: "not-a-guild", routes }))).status, 400);
+  assert.equal((await api.PUT(request({ guildId: "111111111111111111", routes: {
+    ...routes, "contact-media": ["bad-role-id"],
+  } }))).status, 400);
+  const savedResponse = await api.PUT(request({ guildId: "111111111111111111", routes }));
+  assert.equal(savedResponse.status, 200);
+  assert.deepEqual(saved, [{ guildId: "111111111111111111", value: routes }]);
+});
+
+test("submission route storage defaults cleanly and uses parameterized JSON upserts", async () => {
+  const calls = [];
+  const routes = {
+    application: ["111111111111111111"], interest: [],
+    "contact-partnerships": ["222222222222222222"], "contact-business": [],
+    "contact-media": [], "contact-general-enquiry": ["333333333333333333"],
+  };
+  const { getDiscordSubmissionRoutes, saveDiscordSubmissionRoutes } = loadTypeScript("lib/discord-submission-routes.ts", {
+    "@/lib/db": { getDbPool: () => ({ execute: async (sql, params) => {
+      calls.push({ sql, params });
+      if (sql.startsWith("SELECT")) return [[{ routes: JSON.stringify(routes) }]];
+      return [{ affectedRows: 1 }];
+    } }) },
+  });
+  assert.deepEqual(await getDiscordSubmissionRoutes("111111111111111111"), { configured: true, routes });
+  await saveDiscordSubmissionRoutes("111111111111111111", routes);
+  assert.match(calls[0].sql, /guild_id = \?/);
+  assert.deepEqual(calls[0].params, ["111111111111111111"]);
+  assert.match(calls[1].sql, /ON DUPLICATE KEY UPDATE/);
+  assert.deepEqual(calls[1].params, ["111111111111111111", JSON.stringify(routes)]);
+});

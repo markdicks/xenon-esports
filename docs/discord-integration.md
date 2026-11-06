@@ -10,9 +10,9 @@ trigger Discord mentions.
 
 ## Setup
 
-1. Run `sql/002_discord_deliveries.sql`, `sql/003_discord_role_links.sql`, and
-   `sql/005_interest_submissions.sql` once against the existing Hostinger
-   database, after `sql/001_initial.sql`.
+1. Run `sql/002_discord_deliveries.sql`, `sql/003_discord_role_links.sql`,
+   `sql/005_interest_submissions.sql`, and `sql/006_discord_submission_routes.sql`
+   once against the existing Hostinger database, after `sql/001_initial.sql`.
    Existing submissions are marked as historical so enabling the integration
    does not send old personal data. Role links persist manual Discord role
    selections made in the bot dashboard.
@@ -28,6 +28,10 @@ trigger Discord mentions.
 5. Recipients must allow direct messages from server members. Submit one new
    application, interest form and contact enquiry, then verify the DMs and
    delivery activity in the bot logs. The website returns each reference inline.
+6. In the bot's Roles view, open Website notifications to choose one or more
+   recipient roles for staff applications, general interest, and each contact
+   category. New installs retain Founder / Head of Operations and Help defaults
+   until custom routes are saved.
 
 ## Delivery behavior
 
