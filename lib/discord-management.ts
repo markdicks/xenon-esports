@@ -4,13 +4,13 @@ import { z } from "zod";
 import { getDbPool } from "@/lib/db";
 
 const id = z.string().regex(/^\d{17,20}$/);
+const pillarKeys = ["content", "operations", "competitive", "creators", "community", "staff"] as const;
 const permissions = z.array(z.enum([
   "ViewChannel", "SendMessages", "ReadMessageHistory", "AddReactions", "AttachFiles", "EmbedLinks",
   "Connect", "Speak", "Stream", "UseVAD", "ManageMessages", "MuteMembers", "DeafenMembers", "MoveMembers",
 ])).max(14).refine((values) => new Set(values).size === values.length);
-export const managementSchema = z.object({
-  pillars: z.array(z.object({
-    key: z.enum(["content", "operations", "competitive", "creators", "community"]),
+const pillarSchema = z.object({
+    key: z.enum(pillarKeys),
     leadRoleId: id.nullable(),
     targets: z.array(z.object({ id, type: z.enum(["category", "channel"]) }).strict()).max(20),
     permissions,
@@ -21,8 +21,20 @@ export const managementSchema = z.object({
     pendingChannels: z.array(z.object({
       id: z.string().uuid(), parentId: id, name: z.string().min(1).max(100), type: z.union([z.literal(0), z.literal(2)]),
     }).strict()).max(200).default([]),
-  }).strict()).length(5).refine((pillars) => new Set(pillars.map((pillar) => pillar.key)).size === 5),
 }).strict();
+export const managementSchema = z.object({
+  pillars: z.array(pillarSchema).length(pillarKeys.length).refine((pillars) => new Set(pillars.map((pillar) => pillar.key)).size === pillarKeys.length),
+}).strict();
+const storedManagementSchema = z.union([
+  managementSchema,
+  managementSchema.extend({
+    pillars: z.array(pillarSchema).length(pillarKeys.length - 1).refine(
+      (pillars) => !pillars.some((pillar) => pillar.key === "staff") && new Set(pillars.map((pillar) => pillar.key)).size === pillarKeys.length - 1,
+    ).transform((pillars) => [...pillars, {
+      key: "staff" as const, leadRoleId: null, targets: [], permissions: [], subroles: [], pendingChannels: [],
+    }]),
+  }),
+]);
 export type ManagementConfig = z.infer<typeof managementSchema>;
 type ConfigRow = RowDataPacket & { revision: string; configuration: unknown };
 
@@ -32,7 +44,7 @@ export async function getManagementConfig(guildId: string) {
   );
   if (!rows[0]) return { revision: null, config: null };
   const value = rows[0].configuration;
-  return { revision: rows[0].revision, config: managementSchema.parse(typeof value === "string" ? JSON.parse(value) : value) };
+  return { revision: rows[0].revision, config: storedManagementSchema.parse(typeof value === "string" ? JSON.parse(value) : value) };
 }
 
 export async function saveManagementConfig(guildId: string, revision: string | null, config: ManagementConfig, actorId: string) {

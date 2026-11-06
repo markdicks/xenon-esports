@@ -59,8 +59,10 @@ remain the same; honeypot submissions never enter the database or Discord queue.
 
 The bot dashboard's Discord-login and scoped-pillar rework additionally requires
 `sql/007_discord_management.sql`. The protected `/api/bot/management` endpoint
-reuses `WEBSITE_BOT_TOKEN` and the existing MySQL pool. It stores five pillar
+reuses `WEBSITE_BOT_TOKEN` and the existing MySQL pool. It stores six pillar
 scopes, bot-owned subroles and pending-creation reservations with revision-based
 compare-and-swap updates. No MySQL settings or public website forms change.
 Configure Discord OAuth and administrator role IDs in the bot service; never
 put OAuth secrets or the bot integration token in `NEXT_PUBLIC_` variables.
+Existing five-pillar records load with Staff unassigned and retain all saved
+role, category and channel restrictions. No extra SQL migration is required.
