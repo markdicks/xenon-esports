@@ -102,3 +102,39 @@ test("private read responses reveal only the requesting participant and applican
   assert.equal(body.view.participants, undefined); assert.equal(body.view.applicantDiscord, undefined);
   assert.equal(JSON.stringify(body).includes(String(at + 1800000)), false);
 });
+
+test("booking reads and saves accept the public Hostinger origin behind an internal HTTP proxy", async () => {
+  const helpers = load("lib/meeting-api.ts"), value = state(); let reads = 0, writes = 0;
+  const api = load("app/api/meetings/[id]/route.ts", { "@/lib/meeting-api": helpers, "@/lib/meeting-contract": contract,
+    "@/lib/meetings": { validParticipantToken: (_id, _user, token) => token === "a".repeat(64),
+      getMeeting: async () => { reads++; return { state: value, serverNow: Date.now() }; },
+      saveAvailability: async () => { writes++; return "saved"; } } });
+  const context = { params: Promise.resolve({ id: value.id }) };
+  const read = { action: "read", userId: id(2), token: "a".repeat(64) };
+  const save = { userId: id(2), token: "a".repeat(64), slots: [at], timezone: "Africa/Johannesburg" };
+  const request = (body, extra = {}) => new Request(`http://0.0.0.0:3000/api/meetings/${value.id}`, {
+    method: "POST", headers: { Origin: "https://xenonesports.online", Host: "localhost:3000",
+      "X-Forwarded-Host": "xenonesports.online", "X-Forwarded-Proto": "https", "Sec-Fetch-Site": "same-origin", ...extra }, body: JSON.stringify(body),
+  });
+  assert.equal((await api.POST(request(read), context)).status, 200);
+  assert.equal((await api.POST(request(save), context)).status, 200);
+  assert.equal((await api.POST(request(read, { "X-Forwarded-Host": "xenonesports.online, internal.proxy", "X-Forwarded-Proto": "https, http" }), context)).status, 200);
+  assert.equal((await api.POST(request(read, { "X-Forwarded-Host": "", Host: "xenonesports.online" }), context)).status, 200);
+  assert.equal((await api.POST(request(read, { "X-Forwarded-Proto": "" }), context)).status, 200);
+  for (const extra of [{ Origin: "https://evil.example" }, { Origin: "null" }, { Origin: "http://xenonesports.online" },
+    { Origin: "https://xenonesports.online:444" }, { Origin: "https://xenonesports.online/path" }, { "Sec-Fetch-Site": "cross-site" }]) {
+    assert.equal((await api.POST(request(save, extra), context)).status, 403);
+  }
+  assert.equal((await api.POST(request({ ...read, token: "b".repeat(64) }), context)).status, 403);
+  assert.equal(reads, 4); assert.equal(writes, 1);
+});
+
+test("booking message button metadata is backwards compatible and only accepts the current version", () => {
+  const value = state();
+  value.participants[0].invitation = { channelId: id(20), messageId: id(21) };
+  assert.equal(contract.meetingStateSchema.safeParse(value).success, true);
+  value.participants[0].invitation.buttonVersion = 1;
+  assert.equal(contract.meetingStateSchema.safeParse(value).success, true);
+  value.participants[0].invitation.buttonVersion = 2;
+  assert.equal(contract.meetingStateSchema.safeParse(value).success, false);
+});

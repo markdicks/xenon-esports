@@ -10,7 +10,19 @@ const schema = z.union([credentials.extend({ action: z.literal("read") }).strict
 }).strict()]);
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  if (request.headers.get("origin") && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "Invalid request origin" }, 403);
+  const origin = request.headers.get("origin");
+  const host = request.headers.get("x-forwarded-host")?.split(",")[0].trim()
+    || request.headers.get("host") || new URL(request.url).host;
+  const protocol = request.headers.get("x-forwarded-proto")?.split(",")[0].trim().toLowerCase();
+  try {
+    const url = origin ? new URL(origin) : null;
+    // Hostinger terminates HTTPS before forwarding to Next's internal HTTP URL.
+    if (request.headers.get("sec-fetch-site") === "cross-site" || (url && (
+      !["https:", "http:"].includes(url.protocol) || url.host.toLowerCase() !== host.toLowerCase()
+      || url.username || url.password || url.pathname !== "/" || url.search || url.hash
+      || (protocol && url.protocol !== `${protocol}:`)
+    ))) return json({ error: "Invalid request origin" }, 403);
+  } catch { return json({ error: "Invalid request origin" }, 403); }
   let body;
   try { body = schema.safeParse(await readMeetingJson(request, 32_000)); } catch { return json({ error: "Invalid availability" }, 400); }
   if (!meetingId.safeParse(id).success || !body.success || !validParticipantToken(id, body.data.userId, body.data.token)) return json({ error: "This private invitation is invalid" }, 403);

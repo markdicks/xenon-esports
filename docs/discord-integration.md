@@ -94,6 +94,16 @@ Managers see the applicant's proposed slots, but never other managers' calendars
 emails or form answers. Manager invitations are sent after the applicant selects
 times, and include those proposed times using Discord's local-time display.
 
+The private booking API validates the browser origin against the forwarded
+public host (or Host header), not Next's internal proxy URL. Forwarded protocols
+are checked when supplied, and cross-site requests remain blocked. Signed
+participant tokens are still required for both reads and availability saves.
+
+Booking messages use Discord link buttons rather than printing private URLs.
+Optional button-version metadata in existing message records lets the bot
+upgrade pending invitations in place. Deploy this website schema before the
+matching bot update; no new SQL migration or environment variables are needed.
+
 Every manager must respond, and the applicant plus two-thirds of all invited
 managers must match a future slot. The bot creates a private voice channel and
 posts meeting instructions, conduct and confidentiality rules in its chat.

@@ -3,7 +3,7 @@ import { z } from "zod";
 export const discordId = z.string().regex(/^\d{17,20}$/);
 export const meetingId = z.string().regex(/^[a-f0-9]{24}$/);
 export const slotLength = 30 * 60 * 1000;
-const message = z.object({ channelId: discordId, messageId: discordId }).strict();
+const message = z.object({ channelId: discordId, messageId: discordId, buttonVersion: z.literal(1).optional() }).strict();
 export const meetingStateSchema = z.object({
   id: meetingId,
   reference: z.string().regex(/^XEN-(APP|INT|CON)-[A-Z0-9]{6}$/),
