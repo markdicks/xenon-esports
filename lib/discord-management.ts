@@ -16,7 +16,9 @@ const leadAccessSchema = z.object({
 const pillarSchema = z.object({
     key: z.enum(pillarKeys),
     leadRoleId: id.nullable(),
-    targets: z.array(z.object({ id, type: z.enum(["category", "channel"]) }).strict()).max(20),
+    targets: z.array(z.object({
+      id, type: z.enum(["category", "channel"]), modPermissions: z.boolean().optional(), permissions: permissions.optional(),
+    }).strict()).max(20).refine((targets) => new Set(targets.map((target) => target.id)).size === targets.length),
     permissions,
     subroles: z.array(z.object({
       id: z.union([id, z.string().regex(/^pending:[a-f0-9-]{36}$/)]),

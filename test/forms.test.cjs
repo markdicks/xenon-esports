@@ -24,7 +24,7 @@ function fixture(failDatabase = false) {
 }
 
 function contactForm() {
-  return formData({ name: "A", email: "a@example.com", subject: "Hi", message: "Hi" });
+  return formData({ name: "A", discordUsername: "applicant", email: "a@example.com", subject: "Hi", message: "Hi" });
 }
 
 function staffForm() {
@@ -60,7 +60,7 @@ test("a fully filled short enquiry saves without the hidden 20-character limit",
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { success: true, reference: "XEN-CON-A7K42P" });
   assert.equal(inserts.length, 1);
-  assert.deepEqual(inserts[0].values, ["XEN-CON-A7K42P", "A", null, "a@example.com", "Hi", "Hi"]);
+  assert.deepEqual(inserts[0].values, ["XEN-CON-A7K42P", "A", "applicant", "a@example.com", "Hi", "Hi"]);
   assert.match(inserts[0].sql, /VALUES \(\?, \?, \?, \?, \?, \?\)/);
 });
 

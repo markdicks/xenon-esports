@@ -54,7 +54,7 @@ export const staffApplicationSchema = z.object({
 
 export const contactSubmissionSchema = z.object({
   name: requiredShortText("Name"),
-  discordUsername: z.string().trim().max(120).optional(),
+  discordUsername: requiredShortText("Discord username or user ID", 120),
   email: z.string().trim().email("Enter a valid email address.")
     .max(255, "Email must contain no more than 255 characters."),
   subject: requiredShortText("Subject"),

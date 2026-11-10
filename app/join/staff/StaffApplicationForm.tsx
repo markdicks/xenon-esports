@@ -65,6 +65,7 @@ export function StaffApplicationForm() {
             Your public reference is{" "}
             <span className="font-bold text-white">{result.reference}</span>.
           </p>
+          <p className="mt-3 text-sm leading-6 text-steel">Check your Discord DMs for a private meeting availability link from the Xenon bot.</p>
         </div>
       ) : null}
 
@@ -108,7 +109,7 @@ export function StaffApplicationForm() {
         />
 
         <div className="grid gap-5 md:grid-cols-2">
-          <Field label="Discord username" name="discordUsername">
+          <Field label="Discord username or user ID" name="discordUsername">
             <input
               id="discordUsername"
               name="discordUsername"
@@ -156,6 +157,7 @@ export function StaffApplicationForm() {
           </Field>
         </div>
 
+        <p className="text-sm leading-6 text-steel">Join the Xenon Discord and allow direct messages. Our bot will send a private link to arrange a 30-minute meeting.</p>
         <Field label="Weekly availability" name="weeklyAvailability">
           <input
             id="weeklyAvailability"

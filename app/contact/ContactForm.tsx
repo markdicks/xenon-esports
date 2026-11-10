@@ -58,6 +58,7 @@ export function ContactForm() {
             Your public reference is{" "}
             <span className="font-bold text-white">{result.reference}</span>.
           </p>
+          <p className="mt-3 text-sm leading-6 text-steel">Check your Discord DMs for a private meeting availability link from the Xenon bot.</p>
         </div>
       ) : null}
 
@@ -116,14 +117,16 @@ export function ContactForm() {
           </Field>
         </div>
 
-        <Field label="Discord username" name="discordUsername" required={false}>
+        <Field label="Discord username or user ID" name="discordUsername">
           <input
             id="discordUsername"
             name="discordUsername"
             maxLength={120}
+            required
             className={inputClass}
           />
         </Field>
+        <p className="text-sm leading-6 text-steel">Join the Xenon Discord and allow direct messages. Our bot will send a private link to arrange a 30-minute meeting.</p>
 
         <Field label="Category" name="subject">
           <select id="subject" name="subject" className={inputClass} defaultValue="" required>

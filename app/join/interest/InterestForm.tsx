@@ -62,6 +62,7 @@ export function InterestForm({ initialInterests }: { initialInterests: string[] 
         <h2 className="font-display text-2xl font-black text-white">Thanks for your interest in Xenon.</h2>
         <p className="mt-4 text-sm font-semibold text-steel">Reference: <span className="text-white">{result.reference}</span></p>
         <p className="mt-3 leading-7 text-steel">We&apos;ll review what you submitted and contact you through Discord if there&apos;s a suitable next step.</p>
+        <p className="mt-3 text-sm leading-6 text-steel">Check your Discord DMs for a private meeting availability link from the Xenon bot.</p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <Button href={DISCORD_INVITE_URL} target="_blank" rel="noreferrer">Join Discord</Button>
           <Link href="/" className="inline-flex min-h-11 items-center justify-center rounded-md border border-white/18 px-5 py-3 text-sm font-bold uppercase text-white transition hover:border-ion hover:text-ion">Return Home</Link>
@@ -93,11 +94,12 @@ export function InterestForm({ initialInterests }: { initialInterests: string[] 
 
         <div className="grid gap-5 sm:grid-cols-2">
           <label htmlFor="discordUsername" className="block text-sm font-semibold text-white">
-            Discord username <span className="text-volt" aria-hidden="true">*</span>
+            Discord username or user ID <span className="text-volt" aria-hidden="true">*</span>
             <input id="discordUsername" name="discordUsername" maxLength={120} autoComplete="nickname" required className={inputClass} />
           </label>
           <TextField label="Email" name="email" type="email" maxLength={255} placeholder="For an alternate way to reach you" />
         </div>
+        <p className="text-sm leading-6 text-steel">Join the Xenon Discord and allow direct messages. Our bot will send a private link to arrange a 30-minute meeting.</p>
 
         <fieldset className="rounded-md border border-white/10 p-4 sm:p-5">
           <legend className="px-1 text-sm font-semibold text-white">Areas of interest</legend>

@@ -71,3 +71,32 @@ pending permission syncs. Saving access in the bot grants the selected ordinary
 channel permissions to the linked lead role; removing access restores only
 dashboard-managed changes. Deploy the website API before the matching bot fix,
 then resave existing pillar access to apply previously stored ceilings.
+
+Per-area mod/custom permission settings and shared categories are supported by
+the JSON schema. Deploy this website schema before the updated bot; there is no
+additional pillar SQL migration. Revoking one pillar preserves other heads'
+access to a shared category.
+
+## Automatic Meeting Availability
+
+Apply `sql/008_discord_meetings.sql` before enabling the bot's
+`WEBSITE_MEETINGS_CATEGORY_ID`. Bookings reuse the existing pool and internal
+`WEBSITE_BOT_TOKEN`; no new public credentials or MySQL settings are required.
+Contact submissions now require a Discord username or user ID, as staff and
+interest forms already did. Successful form inserts remain independent of bot
+availability.
+
+The bot selects managers through the same per-form/per-contact-category routing,
+then creates a durable, idempotent booking through `/api/bot/meetings`. Participants
+receive signed private `/meet/<id>` links. Availability POSTs validate the signature,
+participant, timezone, future 30-minute slots and the 14-day booking window.
+Managers see the applicant's proposed slots, but never other managers' calendars,
+emails or form answers. Manager invitations are sent after the applicant selects
+times, and include those proposed times using Discord's local-time display.
+
+Every manager must respond, and the applicant plus two-thirds of all invited
+managers must match a future slot. The bot creates a private voice channel and
+posts meeting instructions, conduct and confidentiality rules in its chat.
+Failed applicant DMs notify all routed managers; automatic retries update those
+notices, then delete them after recovery. See the bot's
+`docs/meeting-bookings.md` for setup, retry behavior and operational limitations.

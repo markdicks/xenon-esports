@@ -98,3 +98,18 @@ test("management API bounds streamed permission ownership data even without Cont
   });
   assert.equal((await api.PUT(request)).status, 413); assert.equal(writes, 0);
 });
+
+test("shared categories retain independent per-area presets and reject unsafe target flags", () => {
+  const management = loadTypeScript("lib/discord-management.ts", { "@/lib/db": { getDbPool: () => {} } });
+  const saved = structuredClone(config);
+  for (const [index, roleId] of [[0, "111111111111111111"], [1, "222222222222222222"]]) {
+    saved.pillars[index].leadRoleId = roleId;
+    saved.pillars[index].targets = [{ id: "333333333333333333", type: "category", modPermissions: index === 0, permissions: ["ViewChannel"] }];
+  }
+  assert.equal(management.managementSchema.safeParse(saved).success, true);
+  saved.pillars[1].targets[0].permissions = ["Administrator"];
+  assert.equal(management.managementSchema.safeParse(saved).success, false);
+  saved.pillars[1].targets[0].permissions = ["ViewChannel"];
+  saved.pillars[0].targets.push(saved.pillars[0].targets[0]);
+  assert.equal(management.managementSchema.safeParse(saved).success, false);
+});
