@@ -32,7 +32,8 @@ export async function ensureMeeting(reference: string, guildId: string, managerI
   const state: MeetingState = { id: randomBytes(12).toString("hex"), reference, guildId, applicantDiscord: String(discord).trim(), applicantId: null,
     windowStart: start, windowEnd: start + 14 * 24 * 60 * 60 * 1000, status: "pending",
     participants: Array.from(new Set(managerIds)).map((userId) => ({ userId, kind: "manager", slots: [], responded: false, timezone: "UTC" })),
-    attempts: 0, failureReason: null, channelId: null, scheduledAt: null, attendeeIds: [], announcementId: null, completed: false };
+    attempts: 0, automaticRetries: 0, retryPaused: false, manualRetryRequested: false,
+    failureReason: null, channelId: null, scheduledAt: null, attendeeIds: [], announcementId: null, completed: false };
   await pool.execute("INSERT IGNORE INTO discord_meetings (id, public_reference, guild_id, revision, state) VALUES (?, ?, ?, ?, ?)",
     [state.id, reference, guildId, randomUUID(), JSON.stringify(meetingStateSchema.parse(state))]);
   return true;
@@ -41,15 +42,44 @@ export async function claimMeetings(guildId: string) {
   const pool = getDbPool();
   const [rows] = await pool.execute<MeetingRow[]>(`SELECT id, revision, state FROM discord_meetings
     WHERE guild_id = ? AND finished_at IS NULL AND next_attempt_at <= NOW()
+      AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.retryPaused')), 'false') <> 'true'
+        OR JSON_UNQUOTE(JSON_EXTRACT(state, '$.manualRetryRequested')) = 'true')
       AND (leased_until IS NULL OR leased_until <= NOW()) ORDER BY next_attempt_at, id LIMIT 5`, [guildId]);
   const jobs = [];
   for (const row of rows) {
     const leaseToken = randomUUID();
     const [result] = await pool.execute<ResultSetHeader>(`UPDATE discord_meetings SET lease_token = ?, leased_until = DATE_ADD(NOW(), INTERVAL 2 MINUTE)
-      WHERE id = ? AND revision = ? AND (leased_until IS NULL OR leased_until <= NOW())`, [leaseToken, row.id, row.revision]);
+      WHERE id = ? AND revision = ? AND finished_at IS NULL AND (leased_until IS NULL OR leased_until <= NOW())
+        AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.retryPaused')), 'false') <> 'true'
+          OR JSON_UNQUOTE(JSON_EXTRACT(state, '$.manualRetryRequested')) = 'true')`, [leaseToken, row.id, row.revision]);
     if (result.affectedRows) jobs.push({ state: parseState(row), revision: row.revision, leaseToken });
   }
   return jobs;
+}
+export async function listPausedMeetings(guildId: string) {
+  const [rows] = await getDbPool().execute<MeetingRow[]>(`SELECT id, revision, state FROM discord_meetings
+    WHERE guild_id = ? AND finished_at IS NULL AND JSON_UNQUOTE(JSON_EXTRACT(state, '$.retryPaused')) = 'true'
+    ORDER BY updated_at DESC, id LIMIT 50`, [guildId]);
+  return rows.map((row) => {
+    const state = parseState(row);
+    return { id: state.id, reference: state.reference,
+      attempts: state.attempts, automaticRetries: state.automaticRetries, failureReason: state.failureReason,
+      queued: state.manualRetryRequested, expired: state.windowEnd <= Date.now() };
+  });
+}
+export async function requestManualMeetingRetry(id: string, guildId: string) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const current = await getMeeting(id);
+    if (!current || current.state.guildId !== guildId) return "missing";
+    const { state } = current;
+    if (!state.retryPaused || state.completed || state.windowEnd <= Date.now()) return "closed";
+    if (state.manualRetryRequested) return "queued";
+    state.manualRetryRequested = true;
+    const [result] = await getDbPool().execute<ResultSetHeader>(`UPDATE discord_meetings SET state = ?, revision = ?, next_attempt_at = NOW()
+      WHERE id = ? AND guild_id = ? AND revision = ?`, [JSON.stringify(state), randomUUID(), id, guildId, current.revision]);
+    if (result.affectedRows) return "queued";
+  }
+  return "conflict";
 }
 export async function saveMeetingJob(input: { state: MeetingState; revision: string; leaseToken: string; release: boolean }) {
   const revision = randomUUID();

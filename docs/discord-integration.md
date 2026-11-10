@@ -104,6 +104,15 @@ Optional button-version metadata in existing message records lets the bot
 upgrade pending invitations in place. Deploy this website schema before the
 matching bot update; no new SQL migration or environment variables are needed.
 
+Applicant invitation delivery permits one initial attempt and up to 15 automatic
+retries. Exhausted invitations are excluded from automatic claims. Administrators
+can queue one manual attempt from the bot's Roles > Meeting invitations section;
+a failed manual attempt remains paused instead of opening another automatic
+cycle. Retry metadata is backwards compatible in the existing JSON document.
+The protected paused-list view never leases deliveries and returns references
+and safe diagnostics only. Manual retries use revision-based compare-and-swap
+without clearing existing leases. No database migration is required.
+
 Every manager must respond, and the applicant plus two-thirds of all invited
 managers must match a future slot. The bot creates a private voice channel and
 posts meeting instructions, conduct and confidentiality rules in its chat.

@@ -138,3 +138,62 @@ test("booking message button metadata is backwards compatible and only accepts t
   value.participants[0].invitation.buttonVersion = 2;
   assert.equal(contract.meetingStateSchema.safeParse(value).success, false);
 });
+
+test("paused invitations are excluded from automatic claims unless one manual retry is queued", async () => {
+  const queries = [], value = state();
+  const api = storage({ execute: async (sql, params) => {
+    queries.push([sql, params]);
+    return sql.startsWith("SELECT") ? [[{ id: value.id, revision: "stored", state: value }]] : [{ affectedRows: 1 }];
+  } });
+  assert.equal((await api.claimMeetings(id(1))).length, 1);
+  for (const [sql] of queries) {
+    assert.match(sql, /JSON_EXTRACT\(state, '\$\.retryPaused'\)/);
+    assert.match(sql, /JSON_EXTRACT\(state, '\$\.manualRetryRequested'\)/);
+  }
+});
+
+test("manual retry queues one attempt with CAS and never clears pause or the active lease", async () => {
+  const value = state(); value.retryPaused = true; value.automaticRetries = 15;
+  const queries = [];
+  const api = storage({ execute: async (sql, params) => {
+    queries.push([sql, params]);
+    if (sql.startsWith("SELECT")) return [[{ id: value.id, revision: "stored", state: value }]];
+    return [{ affectedRows: 1 }];
+  } });
+  assert.equal(await api.requestManualMeetingRetry(value.id, id(1)), "queued");
+  const update = queries.at(-1), queued = JSON.parse(update[1][0]);
+  assert.equal(queued.manualRetryRequested, true); assert.equal(queued.retryPaused, true); assert.equal(queued.automaticRetries, 15);
+  assert.match(update[0], /WHERE id = \? AND guild_id = \? AND revision = \?/); assert.doesNotMatch(update[0], /lease_token\s*=|leased_until\s*=/);
+  assert.equal(await api.requestManualMeetingRetry(value.id, id(99)), "missing");
+  value.retryPaused = false; assert.equal(await api.requestManualMeetingRetry(value.id, id(1)), "closed");
+  value.retryPaused = true; value.windowEnd = Date.now() - 1; value.windowStart = value.windowEnd - 14 * 86400000;
+  value.participants.forEach((person) => { person.slots = []; });
+  assert.equal(await api.requestManualMeetingRetry(value.id, id(1)), "closed");
+});
+
+test("paused listing contains only references and safe diagnostics, while legacy retry counts are bounded", async () => {
+  const value = state(); value.applicantDiscord = "PRIVATE-DISCORD-HANDLE"; value.attempts = 50;
+  const api = storage({ execute: async () => [[{ id: value.id, revision: "stored", state: value }]] });
+  const [row] = await api.listPausedMeetings(id(1));
+  assert.equal(row.reference, value.reference); assert.equal(row.automaticRetries, 15);
+  assert.equal(JSON.stringify(row).includes("PRIVATE-DISCORD-HANDLE"), false); assert.equal(row.participants, undefined);
+  const parsed = contract.meetingStateSchema.parse(value);
+  assert.equal(parsed.retryPaused, false); assert.equal(parsed.manualRetryRequested, false); assert.equal(parsed.automaticRetries, 15);
+});
+
+test("bot retry controls require the internal secret and cannot claim through the read-only list", async (t) => {
+  const previous = process.env.WEBSITE_BOT_TOKEN;
+  t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
+  process.env.WEBSITE_BOT_TOKEN = "retry-test";
+  let claims = 0, lists = 0, retries = 0;
+  const api = load("app/api/bot/meetings/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract,
+    "@/lib/meetings": { claimMeetings: async () => { claims++; return []; }, listPausedMeetings: async () => { lists++; return []; }, requestManualMeetingRetry: async () => { retries++; return "queued"; } } });
+  const url = `https://xenon.example/api/bot/meetings?guildId=${id(1)}&view=paused`;
+  assert.equal((await api.GET(new Request(url))).status, 401);
+  assert.equal((await api.GET(new Request(url, { headers: { Authorization: "Bearer retry-test" } }))).status, 200);
+  const body = { action: "retry", id: state().id, guildId: id(1) };
+  const request = (token) => new Request("https://xenon.example/api/bot/meetings", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+  assert.equal((await api.POST(request("wrong"))).status, 401);
+  assert.equal((await api.POST(request("retry-test"))).status, 200);
+  assert.equal(claims, 0); assert.equal(lists, 1); assert.equal(retries, 1);
+});

@@ -3,6 +3,7 @@ import { z } from "zod";
 export const discordId = z.string().regex(/^\d{17,20}$/);
 export const meetingId = z.string().regex(/^[a-f0-9]{24}$/);
 export const slotLength = 30 * 60 * 1000;
+export const maxAutomaticRetries = 15;
 const message = z.object({ channelId: discordId, messageId: discordId, buttonVersion: z.literal(1).optional() }).strict();
 export const meetingStateSchema = z.object({
   id: meetingId,
@@ -19,6 +20,8 @@ export const meetingStateSchema = z.object({
     invitation: message.optional(), failureNotice: message.optional(), outcome: message.optional(), noMatchNotice: message.optional(),
   }).strict()).min(1).max(101),
   attempts: z.number().int().min(0),
+  automaticRetries: z.number().int().min(0).max(maxAutomaticRetries).optional(),
+  retryPaused: z.boolean().default(false), manualRetryRequested: z.boolean().default(false),
   failureReason: z.string().max(300).nullable(),
   channelId: discordId.nullable(), scheduledAt: z.number().int().positive().nullable(),
   attendeeIds: z.array(discordId).max(101), announcementId: discordId.nullable(),
@@ -33,7 +36,7 @@ export const meetingStateSchema = z.object({
     || state.participants.some((row) => row.slots.some((slot) => slot < state.windowStart || slot >= state.windowEnd || slot % slotLength !== 0))) {
     ctx.addIssue({ code: "custom", message: "Invalid meeting participants or availability window" });
   }
-});
+}).transform((state) => ({ ...state, automaticRetries: state.automaticRetries ?? Math.min(maxAutomaticRetries, Math.max(0, state.attempts - 1)) }));
 export type MeetingState = z.infer<typeof meetingStateSchema>;
 
 export function matchingSlot(state: MeetingState, now = Date.now()) {
