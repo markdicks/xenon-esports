@@ -113,6 +113,34 @@ The protected paused-list view never leases deliveries and returns references
 and safe diagnostics only. Manual retries use revision-based compare-and-swap
 without clearing existing leases. No database migration is required.
 
+## Admin Portal Rework
+
+The full meeting portal requires `sql/009_meeting_portal.sql` after migration 008.
+It adds per-user weekly staff availability and an audit table with atomic MySQL
+triggers. Deploy this website before the matching bot. The database user must be
+able to create triggers. Earlier actions are represented by an imported starting
+state, not fabricated history. Existing MySQL configuration is unchanged.
+
+The bot supplies freshly verified role scopes to `/api/bot/meeting-portal` using
+the existing internal bearer secret. Owners and administrators default to their
+assigned notification-role categories; a server-checked View all toggle is explicit.
+All details, history and writes are scoped, not only the list. The old global retry
+view is retired. The portal supports status changes, closure, resends, reopening,
+delivery counts, 1/2/4-week flags and mismatch warnings.
+
+Private availability links now intentionally share submitted times among the
+participants of that application. They never expose another application's answers
+or a staff member's entire weekly pattern. Recurring profiles are editable only
+through the signed-in bot portal. Standing times apply to unscheduled meetings;
+per-meeting overrides are preserved and profile edits invalidate stale booking
+snapshots. See the bot's `docs/admin-meeting-portal.md` for full behavior.
+
+After migrating, enable `WEBSITE_MEETING_BACKFILL_ENABLED=true` on the bot to
+process historical applications, interests and contacts without existing meetings.
+This flag defaults off so deployment does not unexpectedly initiate bulk DMs.
+The catch-up reads minimal routing fields, retains original submission records,
+opens a fresh booking window and never replays full personal-data notifications.
+
 Every manager must respond, and the applicant plus two-thirds of all invited
 managers must match a future slot. The bot creates a private voice channel and
 posts meeting instructions, conduct and confidentiality rules in its chat.

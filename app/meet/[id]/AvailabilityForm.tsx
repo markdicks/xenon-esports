@@ -3,7 +3,8 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import { slotLength } from "@/lib/meeting-contract";
 
 export type AvailabilityFormProps = { id: string; userId: string; token: string; initialSlots: number[]; initialTimezone: string;
-  windowStart: number; windowEnd: number; initialResponded: boolean; status: string; scheduledAt: number | null; channelUrl: string | null; serverNow: number; proposedSlots?: number[]; attending?: boolean };
+  windowStart: number; windowEnd: number; initialResponded: boolean; status: string; scheduledAt: number | null; channelUrl: string | null; serverNow: number; proposedSlots?: number[]; attending?: boolean;
+  sharedParticipants?: { key: string; name: string; own: boolean; responded: boolean; source?: string; slots: number[] }[] };
 const subscribe = () => () => {};
 const control = "min-h-11 rounded-md border border-white/15 bg-black/30 px-4 py-2 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-ion disabled:opacity-40";
 export function AvailabilityForm(props: AvailabilityFormProps) {
@@ -29,6 +30,7 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
   const dateLabel = (at: number) => new Intl.DateTimeFormat("en", { timeZone: timezone, weekday: "long", month: "long", day: "numeric" }).format(at);
   const timeLabel = (at: number) => new Intl.DateTimeFormat("en", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false }).format(at);
   const expired = props.windowEnd <= now || props.status === "expired";
+  if (props.status === "closed") return <p className="mt-8 text-steel">This submission is closed. Availability can no longer be changed.</p>;
   if (props.status === "scheduled" && props.scheduledAt && props.attending === false) return <p className="mt-8 text-sm leading-6 text-steel">A meeting time was selected outside your availability. No attendance is expected from you. Check Discord for the outcome.</p>;
   if (props.status === "scheduled" && props.scheduledAt) return <section className="mt-8 border-t border-ion/30 py-6" role="status">
     <h2 className="font-display text-2xl font-bold text-ion">{props.channelUrl ? "Meeting booked" : "Meeting time reserved"}</h2><p className="mt-4 text-white">{dateLabel(props.scheduledAt)}, {timeLabel(props.scheduledAt)} ({timezone})</p>
@@ -46,7 +48,9 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
     finally { setBusy(false); }
   }
   return <section className="mt-8 border-t border-white/15 pt-6">
-    <p className="mb-5 text-sm text-steel">{props.proposedSlots ? "Applicant's proposed meeting times" : "Your selected times will be shared with the invited Xenon managers."}</p>
+    <p className="mb-5 text-sm text-steel">Availability is shared only with the people handling this submission.</p>
+    <ul className="mb-5 flex flex-wrap gap-3 text-xs text-steel">{props.sharedParticipants?.map((person) => <li key={person.key} className="border-b border-white/15 pb-2"><strong className={person.responded ? "text-ion" : "text-steel"}>{person.name}{person.own ? " (you)" : ""}</strong>: {person.responded ? person.source === "standing" ? "Weekly availability saved" : "Replied" : "Awaiting reply"}</li>)}</ul>
+    <div className="mb-5 flex flex-wrap gap-4 text-xs"><span className="text-ion">Your selection</span><span className="text-purple-300">Others available</span><span className="text-lime-300">Shared selection</span></div>
     <label htmlFor="meeting-timezone" className="block text-sm font-semibold text-white">Timezone</label><select id="meeting-timezone" value={timezone} disabled={busy} onChange={(event) => { setTimezone(event.target.value); setDayIndex(0); setSaved(false); }} className={`${control} mt-2 w-full`}>
       {timezones.map((zone) => <option key={zone} value={zone}>{zone.replaceAll("_", " ")}</option>)}
     </select>
@@ -55,8 +59,11 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
     <div className="mt-6 flex flex-wrap items-center justify-between gap-3"><button className={control} disabled={busy || dayIndex === 0} onClick={() => setDayIndex(Math.max(0, dayIndex - 1))}>Previous day</button>
       <button className={control} disabled={busy || dayIndex >= days.length - 1} onClick={() => setDayIndex(Math.min(days.length - 1, dayIndex + 1))}>Next day</button></div>
     <fieldset disabled={busy} className="mt-5"><legend className="mb-4 text-base font-bold text-white">{day.length ? dateLabel(day[0]) : "No future slots"}<span className="mt-1 block text-xs font-normal text-steel">30-minute slots</span></legend>
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{day.map((at) => <label key={at} className={`flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-md border p-2 text-sm ${slots.has(at) ? "border-ion bg-ion/10 text-white" : "border-white/15 text-steel"}`}>
-        <input type="checkbox" checked={slots.has(at)} className="h-4 w-4 accent-cyan-300" onChange={() => { setSlots((old) => { const next = new Set(old); if (next.has(at)) next.delete(at); else next.add(at); return next; }); setSaved(false); }} />{timeLabel(at)}</label>)}</div>
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{day.map((at) => {
+        const others = props.sharedParticipants?.filter((person) => !person.own && person.responded && person.slots.includes(at)) || [];
+        return <label key={at} title={others.length ? `Available: ${others.map((person) => person.name).join(", ")}` : undefined} className={`flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-md border p-2 text-sm ${slots.has(at) ? others.length ? "border-lime-300 bg-lime-300/10 text-white" : "border-ion bg-ion/10 text-white" : others.length ? "border-purple-300/60 bg-purple-300/10 text-purple-200" : "border-white/15 text-steel"}`}>
+        <input type="checkbox" checked={slots.has(at)} className="h-4 w-4 accent-cyan-300" onChange={() => { setSlots((old) => { const next = new Set(old); if (next.has(at)) next.delete(at); else next.add(at); return next; }); setSaved(false); }} />{timeLabel(at)}</label>;
+      })}</div>
     </fieldset>
     <p className="mt-4 text-sm text-steel">{slots.size} selected across all days</p>
     {error && <p role="alert" className="mt-4 text-sm text-volt">{error}</p>}

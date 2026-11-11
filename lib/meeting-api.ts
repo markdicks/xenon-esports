@@ -8,7 +8,7 @@ export function authorizeBot(request: Request) {
 export const meetingJson = (body: unknown, status = 200) => Response.json(body, {
   status, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" },
 });
-export async function readMeetingJson(request: Request, limit = 300_000): Promise<unknown> {
+export async function readMeetingJson(request: Request, limit = 2_000_000): Promise<unknown> {
   if (Number(request.headers.get("content-length") ?? 0) > limit) throw new Error("Request too large");
   const reader = request.body?.getReader();
   if (!reader) throw new Error("Missing body");

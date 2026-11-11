@@ -10,7 +10,8 @@ function state() {
     participants: [2, 3, 4, 5].map((n) => ({ userId: id(n), kind: n === 2 ? "applicant" : "manager", slots: [at], responded: true, timezone: "UTC" })),
     channelId: null, scheduledAt: null, attendeeIds: [], announcementId: null, completed: false };
 }
-function storage(pool) { return load("lib/meetings.ts", { "@/lib/db": { getDbPool: () => pool }, "@/lib/meeting-contract": contract }); }
+function storage(pool) { return load("lib/meetings.ts", { "@/lib/db": { getDbPool: () => pool }, "@/lib/meeting-contract": contract,
+  "@/lib/meeting-portal": { applyStandingAvailability: async () => {} } }); }
 test("booking requires the applicant, all manager replies and two-thirds of all managers", () => {
   const value = state(); value.participants[3].slots = [];
   assert.deepEqual(contract.matchingSlot(value), { at, attendeeIds: [id(2), id(3), id(4)] });
@@ -18,6 +19,28 @@ test("booking requires the applicant, all manager replies and two-thirds of all 
   value.participants[3].responded = true; value.participants[2].slots = []; assert.equal(contract.matchingSlot(value), null);
   value.participants[2].slots = [at]; value.participants[0].slots = []; assert.equal(contract.matchingSlot(value), null);
   value.participants[0].slots = [at]; assert.equal(contract.matchingSlot(value, at - 3600000), null);
+});
+
+test("follow-up age flags reach four weeks even after the availability window expires", () => {
+  const value = state(), now = at + 30 * 86400000;
+  value.status = "expired"; value.participants[0].responded = false;
+  for (const [days, expected] of [[6, null], [7, 1], [14, 2], [28, 4], [60, 4]]) {
+    const result = contract.meetingFollowUp(value, now - days * 86400000, now);
+    assert.equal(result.overdueWeeks, expected); assert.equal(result.waitingForApplicant, true);
+  }
+  value.status = "scheduled";
+  assert.equal(contract.meetingFollowUp(value, now - 60 * 86400000, now).overdueWeeks, null);
+});
+
+test("availability mismatch is separate from pending responses and uses the existing quorum", () => {
+  const value = state(); value.participants[2].slots = []; value.participants[3].slots = [];
+  let result = contract.meetingFollowUp(value, at - 86400000, at - 12 * 3600000);
+  assert.equal(result.availabilityMismatch, true); assert.equal(result.waitingForManagers, 0);
+  value.participants[3].responded = false;
+  result = contract.meetingFollowUp(value, at - 86400000, at - 12 * 3600000);
+  assert.equal(result.availabilityMismatch, false); assert.equal(result.waitingForManagers, 1);
+  value.participants[3].responded = true; value.participants[2].slots = [at];
+  assert.equal(contract.meetingFollowUp(value, at - 86400000, at - 12 * 3600000).availabilityMismatch, false);
 });
 test("meeting state rejects duplicate people and times outside the fixed window", () => {
   const value = state(); assert.equal(contract.meetingStateSchema.safeParse(value).success, true);
@@ -63,6 +86,51 @@ test("job saves need revision and unexpired lease; ensure is idempotent and read
   assert.match(revision, /^[a-f0-9-]{36}$/);
   assert.match(queries.at(-1)[0], /revision = \? AND lease_token = \? AND leased_until > NOW\(\)/);
 });
+
+test("historical booking creation is explicit, uses a new window, and retains reference deduplication", async () => {
+  const queries = [];
+  const api = storage({ execute: async (sql, params) => {
+    queries.push([sql, params]); return sql.startsWith("SELECT") ? [[{ discord_username: "existing.member" }]] : [{ affectedRows: 1 }];
+  } });
+  await api.ensureMeeting("XEN-APP-A7K42P", id(1), [id(3)], true);
+  assert.match(queries[0][0], /applications WHERE public_reference = \?/);
+  assert.doesNotMatch(queries[0][0], /DATE_SUB/);
+  assert.match(queries[1][0], /INSERT IGNORE/);
+  const saved = JSON.parse(queries[1][1][4]);
+  assert.ok(saved.windowStart >= Date.now() + 3600000);
+  assert.equal(saved.windowEnd - saved.windowStart, 14 * 86400000);
+  queries.length = 0;
+  await api.ensureMeeting("XEN-INT-A7K42P", id(1), [id(3)]);
+  assert.match(queries[0][0], /interest_submissions WHERE reference_code = \? AND created_at >= DATE_SUB/);
+});
+
+test("historical candidates cover all three forms without returning personal answers or existing meetings", async () => {
+  const queries = [];
+  const api = storage({ execute: async (sql, params) => {
+    queries.push([sql, params]); return [[{ reference: "XEN-CON-A7K42P", submission_type: "contact", subject: "Business", status: null }]];
+  } });
+  const result = await api.listHistoricalMeetingCandidates("XEN-APP-A7K42P");
+  assert.deepEqual(result, [{ reference: "XEN-CON-A7K42P", type: "contact", subject: "Business", status: null }]);
+  assert.match(queries[0][0], /FROM applications/); assert.match(queries[0][0], /FROM interest_submissions/);
+  assert.match(queries[0][0], /FROM contact_submissions/); assert.match(queries[0][0], /meeting.public_reference IS NULL/);
+  assert.match(queries[0][0], /TRIM\(pending.discord_username\) <> ''/);
+  assert.deepEqual(queries[0][1], ["XEN-APP-A7K42P", "XEN-APP-A7K42P"]);
+  assert.equal(result[0].discord_username, undefined);
+});
+
+test("historical candidate listing requires bot authentication and a valid cursor", async (t) => {
+  const previous = process.env.WEBSITE_BOT_TOKEN;
+  t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
+  process.env.WEBSITE_BOT_TOKEN = "backfill-test"; let calls = 0;
+  const api = load("app/api/bot/meetings/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract,
+    "@/lib/meetings": { listHistoricalMeetingCandidates: async () => { calls++; return []; } } });
+  const url = `https://xenon.example/api/bot/meetings?guildId=${id(1)}&view=backfill`;
+  assert.equal((await api.GET(new Request(url))).status, 401);
+  const headers = { Authorization: "Bearer backfill-test" };
+  assert.equal((await api.GET(new Request(`${url}&after=invalid`, { headers }))).status, 400);
+  assert.equal((await api.GET(new Request(url, { headers }))).status, 200);
+  assert.equal(calls, 1);
+});
 test("bot meeting API authenticates before DB access and validates manager lists", async (t) => {
   const previous = process.env.WEBSITE_BOT_TOKEN;
   t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
@@ -90,7 +158,7 @@ test("public availability verifies signatures and origin, bounds bodies and vali
   await assert.rejects(helpers.readMeetingJson(new Request("https://xenon.example", { method: "POST", body: "x".repeat(40000) }), 32000), /too large/);
 });
 
-test("private read responses reveal only the requesting participant and applicant proposals, never other managers' times", async () => {
+test("private read responses share only this meeting's participants and times, without raw identity or delivery metadata", async () => {
   const helpers = load("lib/meeting-api.ts"), value = state();
   value.participants[2].slots = [at + 1800000];
   const api = load("app/api/meetings/[id]/route.ts", { "@/lib/meeting-api": helpers, "@/lib/meeting-contract": contract,
@@ -98,9 +166,10 @@ test("private read responses reveal only the requesting participant and applican
   const response = await api.POST(new Request(`https://xenon.example/api/meetings/${value.id}`, { method: "POST",
     body: JSON.stringify({ action: "read", userId: id(3), token: "a".repeat(64) }) }), { params: Promise.resolve({ id: value.id }) });
   assert.equal(response.status, 200); const body = await response.json();
-  assert.deepEqual(body.view.initialSlots, [at]); assert.deepEqual(body.view.proposedSlots, [at]);
+  assert.deepEqual(body.view.initialSlots, [at]); assert.equal(body.view.sharedParticipants.length, 4);
   assert.equal(body.view.participants, undefined); assert.equal(body.view.applicantDiscord, undefined);
-  assert.equal(JSON.stringify(body).includes(String(at + 1800000)), false);
+  assert.equal(JSON.stringify(body).includes(String(at + 1800000)), true);
+  assert.equal(body.view.sharedParticipants[0].userId, undefined); assert.equal(body.view.sharedParticipants[0].invitation, undefined);
 });
 
 test("booking reads and saves accept the public Hostinger origin behind an internal HTTP proxy", async () => {

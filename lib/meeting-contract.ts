@@ -13,10 +13,15 @@ export const meetingStateSchema = z.object({
   applicantId: discordId.nullable(),
   windowStart: z.number().int().positive(), windowEnd: z.number().int().positive(),
   status: z.enum(["pending", "collecting", "scheduled", "no_match", "expired"]),
+  workflowStatus: z.enum(["new", "reviewing", "meeting", "accepted", "rejected", "closed"]).default("new"),
+  lastAction: z.object({ actorId: discordId, kind: z.string().max(60), at: z.number().int() }).strict().optional(),
   participants: z.array(z.object({
     userId: discordId, kind: z.enum(["applicant", "manager"]),
     slots: z.array(z.number().int().positive()).max(672), responded: z.boolean(),
     timezone: z.string().max(100).default("UTC"),
+    displayName: z.string().max(120).optional(), source: z.enum(["meeting", "standing"]).default("meeting"),
+    sendCount: z.number().int().min(0).default(0), lastSentAt: z.number().int().optional(), respondedAt: z.number().int().optional(),
+    resendGeneration: z.number().int().min(0).default(0), resendRequested: z.boolean().default(false),
     invitation: message.optional(), failureNotice: message.optional(), outcome: message.optional(), noMatchNotice: message.optional(),
   }).strict()).min(1).max(101),
   attempts: z.number().int().min(0),
@@ -50,4 +55,16 @@ export function matchingSlot(state: MeetingState, now = Date.now()) {
     if (attending.length >= required) return { at: slot, attendeeIds: [applicant.userId, ...attending.map((row) => row.userId)] };
   }
   return null;
+}
+
+export function meetingFollowUp(state: MeetingState, submittedAt: number, now = Date.now()) {
+  const waitingForApplicant = !state.applicantId || !state.participants.some((person) => person.kind === "applicant" && person.responded);
+  const waitingForManagers = state.participants.filter((person) => person.kind === "manager" && !person.responded).length;
+  const waiting = waitingForApplicant || waitingForManagers > 0;
+  const active = state.status !== "scheduled" && !["closed", "rejected", "accepted"].includes(state.workflowStatus);
+  const ageDays = Math.max(0, Math.floor((now - submittedAt) / (24 * 60 * 60 * 1000)));
+  const overdueWeeks = active && waiting ? (ageDays >= 28 ? 4 : ageDays >= 14 ? 2 : ageDays >= 7 ? 1 : null) : null;
+  const availabilityMismatch = active && !waiting && (state.status === "no_match"
+    || (state.status === "collecting" && state.windowEnd > now && matchingSlot(state, now) === null));
+  return { waitingForApplicant, waitingForManagers, overdueWeeks, availabilityMismatch };
 }

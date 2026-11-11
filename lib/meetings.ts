@@ -18,22 +18,22 @@ export async function getMeeting(id: string) {
   const [rows] = await getDbPool().execute<MeetingRow[]>("SELECT id, revision, state FROM discord_meetings WHERE id = ?", [id]);
   return rows[0] ? { revision: rows[0].revision, state: parseState(rows[0]), serverNow: Date.now() } : null;
 }
-export async function ensureMeeting(reference: string, guildId: string, managerIds: string[]) {
+export async function ensureMeeting(reference: string, guildId: string, managerIds: string[], includeHistorical = false) {
   const pool = getDbPool();
   const prefix = reference.split("-")[1];
   const table = prefix === "APP" ? "applications" : prefix === "CON" ? "contact_submissions" : "interest_submissions";
   const column = prefix === "INT" ? "reference_code" : "public_reference";
   const [rows] = await pool.execute<RowDataPacket[]>(
-    `SELECT discord_username FROM ${table} WHERE ${column} = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)`, [reference],
+    `SELECT discord_username FROM ${table} WHERE ${column} = ?${includeHistorical ? "" : " AND created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY)"}`, [reference],
   );
   const discord = rows[0]?.discord_username;
   if (!discord || !String(discord).trim()) return false;
   const start = Math.ceil((Date.now() + 2 * 60 * 60 * 1000) / slotLength) * slotLength;
-  const state: MeetingState = { id: randomBytes(12).toString("hex"), reference, guildId, applicantDiscord: String(discord).trim(), applicantId: null,
+  const state = meetingStateSchema.parse({ id: randomBytes(12).toString("hex"), reference, guildId, applicantDiscord: String(discord).trim(), applicantId: null,
     windowStart: start, windowEnd: start + 14 * 24 * 60 * 60 * 1000, status: "pending",
     participants: Array.from(new Set(managerIds)).map((userId) => ({ userId, kind: "manager", slots: [], responded: false, timezone: "UTC" })),
     attempts: 0, automaticRetries: 0, retryPaused: false, manualRetryRequested: false,
-    failureReason: null, channelId: null, scheduledAt: null, attendeeIds: [], announcementId: null, completed: false };
+    failureReason: null, channelId: null, scheduledAt: null, attendeeIds: [], announcementId: null, completed: false });
   await pool.execute("INSERT IGNORE INTO discord_meetings (id, public_reference, guild_id, revision, state) VALUES (?, ?, ?, ?, ?)",
     [state.id, reference, guildId, randomUUID(), JSON.stringify(meetingStateSchema.parse(state))]);
   return true;
@@ -52,9 +52,32 @@ export async function claimMeetings(guildId: string) {
       WHERE id = ? AND revision = ? AND finished_at IS NULL AND (leased_until IS NULL OR leased_until <= NOW())
         AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.retryPaused')), 'false') <> 'true'
           OR JSON_UNQUOTE(JSON_EXTRACT(state, '$.manualRetryRequested')) = 'true')`, [leaseToken, row.id, row.revision]);
-    if (result.affectedRows) jobs.push({ state: parseState(row), revision: row.revision, leaseToken });
+    if (result.affectedRows) {
+      const state = parseState(row);
+      if (!["accepted", "rejected", "closed"].includes(state.workflowStatus) && state.status !== "scheduled") {
+        const { applyStandingAvailability } = await import("@/lib/meeting-portal");
+        await applyStandingAvailability(state);
+      }
+      jobs.push({ state, revision: row.revision, leaseToken });
+    }
   }
   return jobs;
+}
+export async function listHistoricalMeetingCandidates(after: string | null) {
+  const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT pending.reference, pending.submission_type, pending.subject, pending.status
+    FROM (
+      SELECT public_reference AS reference, 'application' AS submission_type, discord_username, NULL AS subject, NULL AS status FROM applications
+      UNION ALL
+      SELECT reference_code AS reference, 'interest' AS submission_type, discord_username, NULL AS subject, status FROM interest_submissions
+      UNION ALL
+      SELECT public_reference AS reference, 'contact' AS submission_type, discord_username, subject, NULL AS status FROM contact_submissions
+    ) AS pending
+    LEFT JOIN discord_meetings AS meeting ON meeting.public_reference = pending.reference
+    WHERE meeting.public_reference IS NULL AND pending.discord_username IS NOT NULL AND TRIM(pending.discord_username) <> ''
+      AND (? IS NULL OR pending.reference > ?)
+    ORDER BY pending.reference LIMIT 50`, [after, after]);
+  return rows.map((row) => ({ reference: String(row.reference), type: String(row.submission_type),
+    subject: row.subject == null ? null : String(row.subject), status: row.status == null ? null : String(row.status) }));
 }
 export async function listPausedMeetings(guildId: string) {
   const [rows] = await getDbPool().execute<MeetingRow[]>(`SELECT id, revision, state FROM discord_meetings
@@ -97,9 +120,11 @@ export async function saveAvailability(id: string, userId: string, slots: number
     const { state } = current;
     const person = state.participants.find((row) => row.userId === userId);
     if (!person) return "missing";
-    if (state.status === "scheduled" || state.windowEnd <= Date.now()) return "closed";
+    if (["accepted", "rejected", "closed"].includes(state.workflowStatus) || state.status === "scheduled" || state.windowEnd <= Date.now()) return "closed";
     if (slots.some((slot) => slot < Math.max(state.windowStart, Date.now() + 2 * 60 * 60 * 1000) || slot >= state.windowEnd || slot % slotLength !== 0)) return "invalid";
     person.slots = Array.from(new Set(slots)); person.responded = true; person.timezone = timezone;
+    person.source = "meeting"; person.respondedAt = Date.now();
+    state.lastAction = { actorId: userId, kind: "availability_submitted", at: Date.now() };
     state.status = "collecting"; state.completed = false;
     const [result] = await getDbPool().execute<ResultSetHeader>(`UPDATE discord_meetings SET state = ?, revision = ?, finished_at = NULL, next_attempt_at = NOW()
       WHERE id = ? AND revision = ?`, [JSON.stringify(state), randomUUID(), id, current.revision]);

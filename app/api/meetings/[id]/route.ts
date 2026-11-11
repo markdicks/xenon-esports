@@ -33,9 +33,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       if (!current || !person) return json({ error: "Invitation not found" }, 404);
       const state = current.state;
       return json({ view: { initialSlots: person.slots, initialTimezone: person.timezone, initialResponded: person.responded,
-        windowStart: state.windowStart, windowEnd: state.windowEnd, serverNow: current.serverNow, status: state.status,
+        windowStart: state.windowStart, windowEnd: state.windowEnd, serverNow: current.serverNow, status: ["accepted", "rejected", "closed"].includes(state.workflowStatus) ? "closed" : state.status,
         scheduledAt: state.scheduledAt, reference: state.reference, attending: state.status === "scheduled" ? state.attendeeIds.includes(person.userId) : undefined,
-        proposedSlots: person.kind === "manager" ? state.participants.find((row) => row.kind === "applicant")?.slots || [] : undefined,
+        sharedParticipants: state.participants.map((row, index) => ({ key: row.kind === "applicant" ? "applicant" : `manager-${index}`,
+          name: row.displayName || (row.kind === "applicant" ? "Applicant" : `Manager ${index + 1}`), own: row.userId === person.userId,
+          responded: row.responded, source: row.source, slots: row.slots })),
         channelUrl: state.channelId && state.attendeeIds.includes(person.userId) ? `https://discord.com/channels/${state.guildId}/${state.channelId}` : null } });
     }
     const result = await saveAvailability(id, body.data.userId, body.data.slots, body.data.timezone);
