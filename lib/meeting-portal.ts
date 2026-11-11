@@ -164,3 +164,33 @@ export async function portalMutate(id: string, guildId: string, allowed: string[
     WHERE id = ? AND guild_id = ? AND revision = ?`, [JSON.stringify(state), randomUUID(), state.completed, id, guildId, revision]);
   return result.affectedRows ? "saved" : "conflict";
 }
+export async function portalCorrectDiscord(id: string, guildId: string, allowed: string[], actorId: string, revision: string, discordUsername: string) {
+  const current = await portalDetail(id, guildId, allowed);
+  if (!current) return "missing";
+  if (current.revision !== revision) return "conflict";
+  const state = current.state, username = discordUsername.trim();
+  if (!username || username.length > 120) return "invalid";
+  if (state.status === "scheduled") return "scheduled";
+  if (["accepted", "rejected", "closed"].includes(state.workflowStatus)) return "closed";
+  state.applicantDiscord = username; state.applicantId = null;
+  state.participants = state.participants.filter((person) => person.kind === "manager");
+  state.windowStart = Math.ceil((Date.now() + 7200000) / slotLength) * slotLength; state.windowEnd = state.windowStart + 14 * 86400000;
+  for (const person of state.participants) {
+    person.slots = []; person.responded = false; person.source = "meeting"; person.resendGeneration++;
+    delete person.invitation; delete person.outcome; delete person.noMatchNotice; delete person.deliveryFailure;
+  }
+  state.status = "pending"; state.workflowStatus = "reviewing"; state.failureReason = null;
+  state.completed = false; state.manualRetryRequested = true;
+  state.lastAction = { actorId, kind: "discord_username_updated", at: Date.now() };
+  const prefix = state.reference.split("-")[1], table = prefix === "APP" ? "applications" : prefix === "INT" ? "interest_submissions" : "contact_submissions";
+  const column = prefix === "INT" ? "reference_code" : "public_reference";
+  const connection = await getDbPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const [result] = await connection.execute<ResultSetHeader>(`UPDATE discord_meetings SET state = ?, revision = ?, finished_at = NULL, next_attempt_at = NOW()
+      WHERE id = ? AND guild_id = ? AND revision = ?`, [JSON.stringify(state), randomUUID(), id, guildId, revision]);
+    if (!result.affectedRows) { await connection.rollback(); return "conflict"; }
+    await connection.execute(`UPDATE ${table} SET discord_username = ? WHERE ${column} = ?`, [username, state.reference]);
+    await connection.commit(); return "saved";
+  } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+}

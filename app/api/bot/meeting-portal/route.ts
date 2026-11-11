@@ -1,14 +1,14 @@
 import { z } from "zod";
 import { authorizeBot, meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
 import { discordId, meetingId } from "@/lib/meeting-contract";
-import { getStaffProfile, portalDetail, portalFailure, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
+import { getStaffProfile, portalCorrectDiscord, portalDetail, portalFailure, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(6) };
 const schema = z.discriminatedUnion("action", [
   z.object({ ...context, action: z.literal("list"), before: meetingId.nullable().default(null), status: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).nullable().default(null), search: z.string().max(120).default("") }).strict(),
   z.object({ ...context, action: z.literal("detail"), id: meetingId, historyBefore: z.number().int().positive().nullable().default(null) }).strict(),
-  z.object({ ...context, action: z.literal("mutate"), id: meetingId, revision: z.string().uuid(), operation: z.enum(["status", "resend", "reopen"]), value: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).optional() }).strict(),
+  z.object({ ...context, action: z.literal("mutate"), id: meetingId, revision: z.string().uuid(), operation: z.enum(["status", "resend", "reopen", "discord-username"]), value: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).optional(), discordUsername: z.string().trim().min(1).max(120).optional() }).strict(),
   z.object({ ...context, action: z.literal("profile") }).strict(),
   z.object({ ...context, action: z.literal("save-profile"), profile: profileSchema }).strict(),
 ]);
@@ -30,7 +30,10 @@ export async function POST(request: Request) {
       await saveStaffProfile(input.guildId, input.actorId, input.profile); return json({ success: true });
     }
     if (input.operation === "status" && !input.value) return json({ error: "Choose a status" }, 400);
-    const result = await portalMutate(input.id, input.guildId, input.allowedRoutes, input.actorId, input.revision, input.operation, input.value);
+    if (input.operation === "discord-username" && !input.discordUsername) return json({ error: "Enter a Discord username or user ID" }, 400);
+    const result = input.operation === "discord-username"
+      ? await portalCorrectDiscord(input.id, input.guildId, input.allowedRoutes, input.actorId, input.revision, input.discordUsername!)
+      : await portalMutate(input.id, input.guildId, input.allowedRoutes, input.actorId, input.revision, input.operation, input.value);
     return result === "saved" ? json({ success: true }) : json({ error: result === "missing" ? "Submission not found" : `Submission ${result}. Reload before changing it.` }, result === "missing" ? 404 : 409);
   } catch (error) {
     const failure = portalFailure(error, input.action);

@@ -4,7 +4,7 @@ export const discordId = z.string().regex(/^\d{17,20}$/);
 export const meetingId = z.string().regex(/^[a-f0-9]{24}$/);
 export const slotLength = 30 * 60 * 1000;
 export const maxAutomaticRetries = 15;
-const message = z.object({ channelId: discordId, messageId: discordId, buttonVersion: z.literal(1).optional() }).strict();
+const message = z.object({ channelId: discordId, messageId: discordId, buttonVersion: z.literal(1).optional(), purposeVersion: z.literal(1).optional() }).strict();
 export const meetingStateSchema = z.object({
   id: meetingId,
   reference: z.string().regex(/^XEN-(APP|INT|CON)-[A-Z0-9]{6}$/),
@@ -22,6 +22,7 @@ export const meetingStateSchema = z.object({
     displayName: z.string().max(120).optional(), source: z.enum(["meeting", "standing"]).default("meeting"),
     sendCount: z.number().int().min(0).default(0), lastSentAt: z.number().int().optional(), respondedAt: z.number().int().optional(),
     resendGeneration: z.number().int().min(0).default(0), resendRequested: z.boolean().default(false),
+    deliveryFailure: z.object({ stage: z.enum(["invitation", "outcome"]), at: z.number().int().positive() }).strict().optional(),
     invitation: message.optional(), failureNotice: message.optional(), outcome: message.optional(), noMatchNotice: message.optional(),
   }).strict()).min(1).max(101),
   attempts: z.number().int().min(0),
@@ -44,14 +45,17 @@ export const meetingStateSchema = z.object({
 }).transform((state) => ({ ...state, automaticRetries: state.automaticRetries ?? Math.min(maxAutomaticRetries, Math.max(0, state.attempts - 1)) }));
 export type MeetingState = z.infer<typeof meetingStateSchema>;
 
-export function matchingSlot(state: MeetingState, now = Date.now()) {
+export type BusyMeeting = { scheduledAt: number; attendeeIds: string[] };
+export function matchingSlot(state: MeetingState, now = Date.now(), busy: BusyMeeting[] = []) {
   const applicant = state.participants.find((row) => row.kind === "applicant");
   const managers = state.participants.filter((row) => row.kind === "manager");
   if (!applicant?.responded || !managers.length || managers.some((row) => !row.responded)) return null;
   const required = Math.ceil(managers.length * 2 / 3);
+  const available = (userId: string, slot: number) => !busy.some((meeting) => meeting.attendeeIds.includes(userId)
+    && slot < meeting.scheduledAt + slotLength && meeting.scheduledAt < slot + slotLength);
   for (const slot of Array.from(new Set(applicant.slots)).sort((a, b) => a - b)) {
-    if (slot < now + 2 * 60 * 60 * 1000) continue;
-    const attending = managers.filter((row) => row.slots.includes(slot));
+    if (slot < now + 2 * 60 * 60 * 1000 || !available(applicant.userId, slot)) continue;
+    const attending = managers.filter((row) => row.slots.includes(slot) && available(row.userId, slot));
     if (attending.length >= required) return { at: slot, attendeeIds: [applicant.userId, ...attending.map((row) => row.userId)] };
   }
   return null;
@@ -66,5 +70,7 @@ export function meetingFollowUp(state: MeetingState, submittedAt: number, now = 
   const overdueWeeks = active && waiting ? (ageDays >= 28 ? 4 : ageDays >= 14 ? 2 : ageDays >= 7 ? 1 : null) : null;
   const availabilityMismatch = active && !waiting && (state.status === "no_match"
     || (state.status === "collecting" && state.windowEnd > now && matchingSlot(state, now) === null));
-  return { waitingForApplicant, waitingForManagers, overdueWeeks, availabilityMismatch };
+  const failedRecipients = state.participants.filter((person) => person.deliveryFailure).length;
+  return { waitingForApplicant, waitingForManagers, overdueWeeks, availabilityMismatch,
+    deliveryFailed: Boolean(state.failureReason) || failedRecipients > 0, failedRecipients };
 }

@@ -21,6 +21,28 @@ test("booking requires the applicant, all manager replies and two-thirds of all 
   value.participants[0].slots = [at]; assert.equal(contract.matchingSlot(value, at - 3600000), null);
 });
 
+test("existing meetings exclude busy managers and applicants, preserve quorum, and allow adjacent slots", () => {
+  const value = state(); value.participants.forEach((person) => { person.slots = [at, at + contract.slotLength]; });
+  const busy = [{ scheduledAt: at, attendeeIds: [id(3), id(4)] }];
+  assert.equal(contract.matchingSlot(value, Date.now(), busy).at, at + contract.slotLength);
+  assert.deepEqual(contract.matchingSlot(value, Date.now(), [{ scheduledAt: at, attendeeIds: [id(3)] }]), { at, attendeeIds: [id(2), id(4), id(5)] });
+  assert.equal(contract.matchingSlot(value, Date.now(), [{ scheduledAt: at, attendeeIds: [id(2)] }]).at, at + contract.slotLength);
+  assert.equal(contract.matchingSlot(value, Date.now(), [{ scheduledAt: at - 1, attendeeIds: [id(2)] }]).at, at + contract.slotLength);
+  value.participants.forEach((person) => { person.slots = [at]; });
+  assert.equal(contract.matchingSlot(value, Date.now(), busy), null);
+  assert.equal(contract.matchingSlot(value, Date.now(), [{ scheduledAt: at - contract.slotLength, attendeeIds: [id(2)] }]).at, at);
+});
+
+test("delivery flags cover unresolved applicants and failed participant messages, not ordinary pending replies", () => {
+  const value = contract.meetingStateSchema.parse(state());
+  assert.equal(contract.meetingFollowUp(value, Date.now()).deliveryFailed, false);
+  value.failureReason = "The applicant could not be uniquely found in this Discord server.";
+  assert.equal(contract.meetingFollowUp(value, Date.now()).deliveryFailed, true);
+  value.failureReason = null; value.participants[1].deliveryFailure = { stage: "invitation", at: Date.now() };
+  const result = contract.meetingFollowUp(value, Date.now());
+  assert.equal(result.deliveryFailed, true); assert.equal(result.failedRecipients, 1);
+});
+
 test("follow-up age flags reach four weeks even after the availability window expires", () => {
   const value = state(), now = at + 30 * 86400000;
   value.status = "expired"; value.participants[0].responded = false;
@@ -85,6 +107,20 @@ test("job saves need revision and unexpired lease; ensure is idempotent and read
   const revision = await api.saveMeetingJob({ state: state(), revision: "old", leaseToken: "lease", release: false });
   assert.match(revision, /^[a-f0-9-]{36}$/);
   assert.match(queries.at(-1)[0], /revision = \? AND lease_token = \? AND leased_until > NOW\(\)/);
+  assert.match(queries.at(-1)[0], /COLLATE utf8mb4_unicode_ci <> 'scheduled'/);
+});
+
+test("atomic booking API requires the bot secret and rejects caller-supplied booking decisions", async (t) => {
+  const previous = process.env.WEBSITE_BOT_TOKEN; process.env.WEBSITE_BOT_TOKEN = "booking-test";
+  t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
+  let bookings = 0;
+  const api = load("app/api/bot/meetings/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract,
+    "@/lib/meetings": { bookMeetingJob: async () => { bookings++; return { state: state(), revision: "reserved" }; } } });
+  const body = { action: "book", id: state().id, guildId: id(1), revision: "0899fdb8-5e85-45fb-b399-5d77523f8300", leaseToken: "0899fdb8-5e85-45fb-b399-5d77523f8301" };
+  const request = (value, token = "booking-test") => new Request("https://xenon.example/api/bot/meetings", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(value) });
+  assert.equal((await api.POST(request(body, "wrong"))).status, 401);
+  assert.equal((await api.POST(request({ ...body, scheduledAt: at, attendeeIds: [id(3)] }))).status, 400);
+  assert.equal(bookings, 0); assert.equal((await api.POST(request(body))).status, 200); assert.equal(bookings, 1);
 });
 
 test("historical booking creation is explicit, uses a new window, and retains reference deduplication", async () => {

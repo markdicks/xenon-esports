@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { getDbPool } from "@/lib/db";
-import { meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
+import { matchingSlot, meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
 
 type MeetingRow = RowDataPacket & { id: string; revision: string; state: unknown; lease_token?: string };
 const parseState = (row: MeetingRow) => meetingStateSchema.parse(typeof row.state === "string" ? JSON.parse(row.state) : row.state);
@@ -104,14 +104,90 @@ export async function requestManualMeetingRetry(id: string, guildId: string) {
   }
   return "conflict";
 }
-export async function saveMeetingJob(input: { state: MeetingState; revision: string; leaseToken: string; release: boolean }) {
+type JobIdentity = { id: string; guildId: string; revision: string; leaseToken: string };
+type JobSave = { state: MeetingState; revision: string; leaseToken: string; release: boolean };
+async function writeMeetingJob(pool: Pool | PoolConnection, input: JobSave) {
   const revision = randomUUID();
-  const [result] = await getDbPool().execute<ResultSetHeader>(`UPDATE discord_meetings SET state = ?, revision = ?,
+  const [result] = await pool.execute<ResultSetHeader>(`UPDATE discord_meetings SET state = ?, revision = ?,
     finished_at = IF(?, NOW(), NULL), next_attempt_at = DATE_ADD(NOW(), INTERVAL 2 MINUTE),
     leased_until = IF(?, NULL, DATE_ADD(NOW(), INTERVAL 2 MINUTE)), lease_token = IF(?, NULL, lease_token)
-    WHERE id = ? AND revision = ? AND lease_token = ? AND leased_until > NOW() AND guild_id = ? AND public_reference = ?`,
+    WHERE id = ? AND revision = ? AND lease_token = ? AND leased_until > NOW() AND guild_id = ? AND public_reference = ?
+      ${input.state.status === "scheduled" ? "" : "AND CONVERT(JSON_UNQUOTE(JSON_EXTRACT(state, '$.status')) USING utf8mb4) COLLATE utf8mb4_unicode_ci <> 'scheduled'"}`,
   [JSON.stringify(input.state), revision, input.state.completed, input.release, input.release, input.state.id, input.revision, input.leaseToken, input.state.guildId, input.state.reference]);
   return result.affectedRows ? revision : null;
+}
+async function withBookingLock<T>(operation: (connection: PoolConnection) => Promise<T>) {
+  const connection = await getDbPool().getConnection();
+  let locked = false, reusable = true;
+  try {
+    // One short database-scoped lock protects choices across workers and meetings.
+    reusable = false;
+    const [rows] = await connection.execute<RowDataPacket[]>("SELECT GET_LOCK(CONCAT('xenon-meetings:', MD5(DATABASE())), 10) AS acquired");
+    reusable = true;
+    locked = Number(rows[0]?.acquired) === 1;
+    if (!locked) throw new Error("Meeting booking lock is unavailable");
+    await connection.beginTransaction();
+    const result = await operation(connection);
+    await connection.commit();
+    return result;
+  } catch (error) {
+    try { await connection.rollback(); } catch { reusable = false; }
+    throw error;
+  } finally {
+    if (locked && reusable) {
+      try {
+        const [rows] = await connection.execute<RowDataPacket[]>("SELECT RELEASE_LOCK(CONCAT('xenon-meetings:', MD5(DATABASE()))) AS released");
+        reusable = Number(rows[0]?.released) === 1;
+      } catch { reusable = false; }
+    }
+    if (reusable) connection.release(); else connection.destroy();
+  }
+}
+async function lockedMeeting(connection: PoolConnection, input: JobIdentity) {
+  const [rows] = await connection.execute<MeetingRow[]>(`SELECT id, revision, state FROM discord_meetings
+    WHERE id = ? AND guild_id = ? AND revision = ? AND lease_token = ? AND leased_until > NOW() FOR UPDATE`,
+  [input.id, input.guildId, input.revision, input.leaseToken]);
+  return rows[0] ? { state: parseState(rows[0]), revision: rows[0].revision } : null;
+}
+async function busyMeetings(connection: PoolConnection, state: MeetingState) {
+  const [rows] = await connection.execute<MeetingRow[]>(`SELECT state FROM discord_meetings WHERE id <> ?
+    AND CAST(JSON_UNQUOTE(JSON_EXTRACT(state, '$.scheduledAt')) AS UNSIGNED) > ?
+    AND CAST(JSON_UNQUOTE(JSON_EXTRACT(state, '$.scheduledAt')) AS UNSIGNED) < ?`,
+  [state.id, state.windowStart - slotLength, state.windowEnd]);
+  return rows.map(parseState).filter((other) => other.status === "scheduled" && other.scheduledAt !== null)
+    .map((other) => ({ scheduledAt: other.scheduledAt!, attendeeIds: other.attendeeIds }));
+}
+export async function bookMeetingJob(input: JobIdentity) {
+  return withBookingLock(async (connection) => {
+    const current = await lockedMeeting(connection, input);
+    if (!current) return null;
+    const state = current.state;
+    if (["accepted", "rejected", "closed"].includes(state.workflowStatus) || state.windowEnd <= Date.now()) return null;
+    if (state.status === "scheduled") return current;
+    if (!state.applicantId || !state.participants.every((person) => person.responded)) return null;
+    const match = matchingSlot(state, Date.now(), await busyMeetings(connection, state));
+    if (match) {
+      state.status = "scheduled"; state.workflowStatus = "meeting"; state.scheduledAt = match.at; state.attendeeIds = match.attendeeIds;
+    } else state.status = "no_match";
+    const revision = await writeMeetingJob(connection, { ...input, state, release: false });
+    return revision ? { state, revision } : null;
+  });
+}
+export async function saveMeetingJob(input: JobSave) {
+  if (input.state.status !== "scheduled") return writeMeetingJob(getDbPool(), input);
+  return withBookingLock(async (connection) => {
+    const current = await lockedMeeting(connection, { ...input, id: input.state.id, guildId: input.state.guildId });
+    if (!current) return null;
+    if (current.state.status === "scheduled") {
+      if (current.state.scheduledAt !== input.state.scheduledAt || JSON.stringify(current.state.attendeeIds) !== JSON.stringify(input.state.attendeeIds)) return null;
+    } else {
+      // Older bot versions cannot bypass the same conflict check through save.
+      if (["accepted", "rejected", "closed"].includes(current.state.workflowStatus)) return null;
+      const match = matchingSlot(current.state, Date.now(), await busyMeetings(connection, current.state));
+      if (!match || match.at !== input.state.scheduledAt || JSON.stringify(match.attendeeIds) !== JSON.stringify(input.state.attendeeIds)) return null;
+    }
+    return writeMeetingJob(connection, input);
+  });
 }
 export async function saveAvailability(id: string, userId: string, slots: number[], timezone: string) {
   for (let attempt = 0; attempt < 3; attempt++) {

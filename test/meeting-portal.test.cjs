@@ -144,3 +144,53 @@ test("closing, resending and reopening use authorized CAS writes and preserve ex
   saved = JSON.parse(writes.at(-1)[1][0]); assert.equal(saved.workflowStatus, "reviewing"); assert.equal(saved.completed, false);
   assert.equal(saved.participants[0].invitation, undefined); assert.equal(saved.participants[1].responded, false);
 });
+
+test("Discord corrections update the submission and reset the meeting atomically without clearing its lease", async () => {
+  const current = meetingFixture(), writes = []; let commits = 0, rollbacks = 0, releases = 0;
+  const connection = { beginTransaction: async () => {}, execute: async (sql, params) => { writes.push([sql, params]); return [{ affectedRows: 1 }]; },
+    commit: async () => { commits++; }, rollback: async () => { rollbacks++; }, release: () => { releases++; } };
+  const api = portal({ getConnection: async () => connection, execute: async (sql) => {
+    if (sql.includes("discord_meeting_history")) return [[]];
+    if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
+    return [[{ discord_username: "applicant" }]];
+  } }, current);
+  assert.equal(await api.portalCorrectDiscord(current.state.id, id(1), ["interest"], id(3), current.revision, "  corrected.username  "), "saved");
+  const state = JSON.parse(writes[0][1][0]);
+  assert.equal(state.applicantDiscord, "corrected.username"); assert.equal(state.applicantId, null);
+  assert.ok(state.participants.every((person) => person.kind === "manager" && !person.responded && !person.invitation));
+  assert.equal(state.manualRetryRequested, true); assert.equal(state.completed, false);
+  assert.equal(state.lastAction.kind, "discord_username_updated"); assert.equal(state.lastAction.actorId, id(3));
+  assert.match(writes[1][0], /UPDATE interest_submissions SET discord_username = \? WHERE reference_code = \?/);
+  assert.deepEqual(writes[1][1], ["corrected.username", current.state.reference]);
+  assert.doesNotMatch(writes[0][0], /lease_token\s*=|leased_until\s*=/);
+  assert.equal(commits, 1); assert.equal(rollbacks, 0); assert.equal(releases, 1);
+});
+
+test("Discord correction rejects booked meetings, closed records, stale revisions and unrelated roles", async () => {
+  for (const scenario of ["scheduled", "closed", "stale", "unrelated"]) {
+    const current = meetingFixture();
+    if (scenario === "scheduled") current.state.status = "scheduled";
+    if (scenario === "closed") current.state.workflowStatus = "closed";
+    const api = portal({ getConnection: async () => { throw new Error("Unexpected write"); }, execute: async (sql) => {
+      if (sql.includes("discord_meeting_history")) return [[]];
+      if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
+      return [[]];
+    } }, current);
+    const result = await api.portalCorrectDiscord(current.state.id, id(1), scenario === "unrelated" ? [] : ["interest"], id(3), scenario === "stale" ? "stale" : current.revision, "corrected");
+    assert.equal(result, { scheduled: "scheduled", closed: "closed", stale: "conflict", unrelated: "missing" }[scenario]);
+  }
+});
+
+test("a failed source update rolls back the meeting correction and its audit event", async () => {
+  const current = meetingFixture(); let rolledBack = false, committed = false, released = false;
+  const api = portal({ getConnection: async () => ({ beginTransaction: async () => {}, execute: async (sql) => {
+    if (sql.includes("UPDATE interest_submissions")) throw new Error("source unavailable");
+    return [{ affectedRows: 1 }];
+  }, commit: async () => { committed = true; }, rollback: async () => { rolledBack = true; }, release: () => { released = true; } }), execute: async (sql) => {
+    if (sql.includes("discord_meeting_history")) return [[]];
+    if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
+    return [[]];
+  } }, current);
+  await assert.rejects(api.portalCorrectDiscord(current.state.id, id(1), ["interest"], id(3), current.revision, "corrected"), /source unavailable/);
+  assert.equal(rolledBack, true); assert.equal(committed, false); assert.equal(released, true);
+});
