@@ -7,6 +7,38 @@ import { meetingFollowUp, meetingStateSchema, slotLength, type MeetingState } fr
 
 export const routeKeys = ["application", "interest", "contact-partnerships", "contact-business", "contact-media", "contact-general-enquiry"] as const;
 export type RouteKey = typeof routeKeys[number];
+// Expressions are fixed SQL, never user input. Older tables and connection
+// literals can have different defaults on Hostinger; normalize comparisons here.
+const sqlText = (expression: string) => `CONVERT(${expression} USING utf8mb4) COLLATE utf8mb4_unicode_ci`;
+export function portalFailure(error: unknown, action: string) {
+  const databaseCode = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  const failures: Record<string, [string, string]> = {
+    ER_NO_SUCH_TABLE: ["PORTAL_TABLE_MISSING", action === "list"
+      ? "A submission or meeting table is missing from the website database. Check migrations 001, 005 and 008 in the configured database."
+      : "A required meeting table is missing from the website database. Check migrations 008 and 009 in the configured database."],
+    ER_BAD_FIELD_ERROR: ["PORTAL_COLUMN_MISSING", "The website database schema does not match the meeting portal. Check the website log for the missing column."],
+    ER_PARSE_ERROR: ["PORTAL_QUERY_FAILED", "The meeting portal database query failed. Check the website log; rerunning migration 009 may not resolve this."],
+    ER_OPERAND_COLUMNS: ["PORTAL_QUERY_FAILED", "The meeting portal database query failed. Check the website log; rerunning migration 009 may not resolve this."],
+    ER_CANT_AGGREGATE_2COLLATIONS: ["PORTAL_COLLATION_MISMATCH", "The portal query contains incompatible text collations. Check the website database log."],
+    ER_CANT_AGGREGATE_3COLLATIONS: ["PORTAL_COLLATION_MISMATCH", "The portal query contains incompatible text collations. Check the website database log."],
+    ER_CANT_AGGREGATE_NCOLLATIONS: ["PORTAL_COLLATION_MISMATCH", "The portal query contains incompatible text collations. Check the website database log."],
+  };
+  let failure = Object.hasOwn(failures, databaseCode) ? failures[databaseCode] : undefined;
+  if (["ER_ACCESS_DENIED_ERROR", "ER_DBACCESS_DENIED_ERROR", "ER_TABLEACCESS_DENIED_ERROR", "ER_COLUMNACCESS_DENIED_ERROR", "ER_SPECIFIC_ACCESS_DENIED_ERROR", "ER_TRG_NO_DEFINER"].includes(databaseCode)) {
+    failure = ["PORTAL_DATABASE_PERMISSIONS", "The website database user cannot access the meeting data or its triggers. Check database permissions in Hostinger."];
+  }
+  if (["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ER_CON_COUNT_ERROR", "ER_TOO_MANY_USER_CONNECTIONS"].includes(databaseCode)) {
+    failure = ["PORTAL_DATABASE_CONNECTION", "The website could not connect to its database. Check the Hostinger database connection log."];
+  }
+  if (error instanceof z.ZodError || error instanceof SyntaxError) {
+    failure = ["PORTAL_INVALID_DATA", "A saved meeting contains invalid data. Check the website log before changing or deleting any records."];
+  }
+  const [code, message] = failure || ["PORTAL_UNAVAILABLE", "The meeting portal request failed. Check the website log for the failing action and diagnostic code."];
+  // Log identifiers only, never SQL, bound submission answers or raw driver errors.
+  const field = databaseCode === "ER_BAD_FIELD_ERROR" && error && typeof error === "object" && "sqlMessage" in error
+    ? String(error.sqlMessage).match(/^Unknown column '([a-zA-Z0-9_.$]{1,80})'/)?.[1] : undefined;
+  return { error: message, code, diagnostic: { action, code, databaseCode: failure && databaseCode ? databaseCode : undefined, field } };
+}
 export const profileSchema = z.object({ enabled: z.boolean().default(true), timezone: z.string().max(100).refine((zone) => {
   try { new Intl.DateTimeFormat("en", { timeZone: zone }); return true; } catch { return false; }
 }), weeklySlots: z.array(z.number().int().min(0).max(335)).max(336).refine((slots) => new Set(slots).size === slots.length) }).strict();
@@ -37,8 +69,8 @@ export async function saveStaffProfile(guildId: string, userId: string, profile:
     // Invalidate in-flight snapshots before they can book against old standing times.
     await connection.execute(`UPDATE discord_meetings SET revision = UUID(), finished_at = NULL, next_attempt_at = NOW()
       WHERE guild_id = ? AND JSON_SEARCH(state, 'one', ?, NULL, '$.participants[*].userId') IS NOT NULL
-      AND JSON_UNQUOTE(JSON_EXTRACT(state, '$.status')) <> 'scheduled'
-      AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.workflowStatus')), 'new') NOT IN ('accepted','rejected','closed')`, [guildId, userId]);
+      AND ${sqlText("JSON_UNQUOTE(JSON_EXTRACT(state, '$.status'))")} <> 'scheduled'
+      AND ${sqlText("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.workflowStatus')), 'new')")} NOT IN ('accepted','rejected','closed')`, [guildId, userId]);
     await connection.commit();
   } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
 }
@@ -56,9 +88,10 @@ export async function applyStandingAvailability(state: MeetingState) {
     else if (person.source === "standing") { person.slots = []; person.responded = false; person.source = "meeting"; }
   }
 }
-const sources = `SELECT public_reference AS reference, 'application' AS type, discord_username, NULL AS subject, created_at FROM applications
-  UNION ALL SELECT reference_code, 'interest', discord_username, NULL, created_at FROM interest_submissions
-  UNION ALL SELECT public_reference, 'contact', discord_username, subject, created_at FROM contact_submissions`;
+const sources = `SELECT ${sqlText("public_reference")} AS reference, ${sqlText("'application'")} AS type,
+    ${sqlText("discord_username")} AS discord_username, ${sqlText("NULL")} AS subject, created_at FROM applications
+  UNION ALL SELECT ${sqlText("reference_code")}, ${sqlText("'interest'")}, ${sqlText("discord_username")}, ${sqlText("NULL")}, created_at FROM interest_submissions
+  UNION ALL SELECT ${sqlText("public_reference")}, ${sqlText("'contact'")}, ${sqlText("discord_username")}, ${sqlText("subject")}, created_at FROM contact_submissions`;
 export function submissionRoute(type: string, subject: string | null): RouteKey {
   if (type !== "contact") return type as RouteKey;
   const key = String(subject || "").toLowerCase().trim();
@@ -72,10 +105,9 @@ export async function portalList(guildId: string, allowed: string[], before: str
   if (!allowed.length) return { items: [], next: null };
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT meeting.id, meeting.revision, meeting.state, source.* FROM discord_meetings AS meeting
     JOIN (${sources}) AS source ON source.reference = meeting.public_reference
-    WHERE meeting.guild_id = ? AND (? IS NULL OR (meeting.created_at, meeting.id) < (SELECT created_at, id FROM discord_meetings WHERE id = ? AND guild_id = ?)) AND (? = '' OR source.reference LIKE ? OR source.discord_username LIKE ?)
-    AND (? IS NULL OR COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.workflowStatus')), 'new') = ?)
-    AND (CASE WHEN source.type <> 'contact' THEN source.type WHEN LOWER(TRIM(source.subject)) = 'partnerships' THEN 'contact-partnerships'
-      WHEN LOWER(TRIM(source.subject)) = 'business' THEN 'contact-business' WHEN LOWER(TRIM(source.subject)) = 'media' THEN 'contact-media' ELSE 'contact-general-enquiry' END)
+    WHERE meeting.guild_id = ? AND (? IS NULL OR (meeting.created_at, meeting.id) < (SELECT created_at, id FROM discord_meetings WHERE id = ? AND guild_id = ?)) AND (LENGTH(?) = 0 OR source.reference LIKE ? OR source.discord_username LIKE ?)
+    AND (? IS NULL OR ${sqlText("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.workflowStatus')), 'new')")} = ?)
+    AND ${sqlText("(CASE WHEN source.type <> 'contact' THEN source.type WHEN LOWER(TRIM(source.subject)) = 'partnerships' THEN 'contact-partnerships' WHEN LOWER(TRIM(source.subject)) = 'business' THEN 'contact-business' WHEN LOWER(TRIM(source.subject)) = 'media' THEN 'contact-media' ELSE 'contact-general-enquiry' END)")}
       IN (${allowed.map(() => "?").join(",")}) ORDER BY meeting.created_at DESC, meeting.id DESC LIMIT 26`,
   [guildId, before, before, guildId, search, `%${search}%`, `%${search}%`, status, status, ...allowed]);
   const page = rows.slice(0, 25);

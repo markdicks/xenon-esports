@@ -33,6 +33,48 @@ test("no routes means no list access, including owner/default views", async () =
   assert.deepEqual(await api.portalList(id(1), [], null, null, ""), { items: [], next: null });
   assert.equal(api.submissionRoute("contact", "Business"), "contact-business");
 });
+
+test("inbox pagination retains its guild scope and binds all filters", async () => {
+  const calls = [], before = "a".repeat(24);
+  const api = portal({ execute: async (sql, params) => { calls.push({ sql, params }); return [[]]; } });
+  assert.deepEqual(await api.portalList(id(1), ["interest"], before, "reviewing", "applicant"), { items: [], next: null });
+  assert.match(calls[0].sql, /\(meeting.created_at, meeting.id\) < \(SELECT created_at, id FROM discord_meetings WHERE id = \? AND guild_id = \?\)/);
+  assert.deepEqual(calls[0].params, [id(1), before, before, id(1), "applicant", "%applicant%", "%applicant%", "reviewing", "reviewing", "interest"]);
+  await api.portalList(id(1), ["interest"], null, null, "");
+  assert.deepEqual(calls[1].params.slice(0, 4), [id(1), null, null, id(1)]);
+});
+
+test("portal queries normalize source, JSON status and route collations without changing the pool", async () => {
+  const queries = [];
+  const api = portal({ execute: async (sql) => { queries.push(sql); return [[]]; } });
+  await api.portalList(id(1), ["application", "contact-media"], null, "new", "");
+  const sql = queries[0];
+  for (const expression of ["public_reference", "reference_code", "discord_username", "subject", "'application'", "'interest'", "'contact'"]) {
+    assert.ok(sql.includes(`CONVERT(${expression} USING utf8mb4) COLLATE utf8mb4_unicode_ci`), expression);
+  }
+  assert.match(sql, /LENGTH\(\?\) = 0/); assert.doesNotMatch(sql, /\? = ''/);
+  assert.ok(sql.includes("CONVERT(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.workflowStatus')), 'new') USING utf8mb4) COLLATE utf8mb4_unicode_ci = ?"));
+  assert.match(sql, /END\) USING utf8mb4\) COLLATE utf8mb4_unicode_ci\s+IN/);
+  await api.portalSource("XEN-APP-A7K42P");
+  assert.ok(queries[1].includes("CONVERT(public_reference USING utf8mb4) COLLATE utf8mb4_unicode_ci AS reference"));
+});
+
+test("portal failures distinguish schema, query, data and connectivity without logging answers or credentials", () => {
+  const api = portal(), secret = "private-answer-or-password";
+  const query = api.portalFailure({ code: "ER_OPERAND_COLUMNS", sql: secret, sqlMessage: secret }, "list");
+  assert.equal(query.code, "PORTAL_QUERY_FAILED"); assert.equal(query.diagnostic.databaseCode, "ER_OPERAND_COLUMNS");
+  assert.equal(api.portalFailure({ code: "ER_NO_SUCH_TABLE" }, "list").code, "PORTAL_TABLE_MISSING");
+  assert.equal(api.portalFailure({ code: "ER_TABLEACCESS_DENIED_ERROR" }, "list").code, "PORTAL_DATABASE_PERMISSIONS");
+  assert.equal(api.portalFailure({ code: "ECONNREFUSED" }, "list").code, "PORTAL_DATABASE_CONNECTION");
+  assert.equal(api.portalFailure({ code: "ER_CANT_AGGREGATE_NCOLLATIONS" }, "list").code, "PORTAL_COLLATION_MISMATCH");
+  assert.equal(api.portalFailure({ code: "ER_CANT_AGGREGATE_2COLLATIONS" }, "list").code, "PORTAL_COLLATION_MISMATCH");
+  assert.equal(api.portalFailure(new SyntaxError(secret), "list").code, "PORTAL_INVALID_DATA");
+  assert.equal(api.portalFailure(new Error(secret), "list").code, "PORTAL_UNAVAILABLE");
+  assert.equal(api.portalFailure({ code: secret }, "list").diagnostic.databaseCode, undefined);
+  assert.equal(api.portalFailure({ code: "__proto__" }, "list").code, "PORTAL_UNAVAILABLE");
+  assert.equal(api.portalFailure({ code: "ER_BAD_FIELD_ERROR", sqlMessage: "Unknown column 'source.created_at' in 'field list'" }, "list").diagnostic.field, "source.created_at");
+  assert.equal(JSON.stringify(query).includes(secret), false);
+});
 test("detail denies an unrelated route before loading answers or history", async () => {
   let reads = 0;
   const api = portal({ execute: async () => { reads++; return [[{ type: "interest", subject: null }]]; } }, { revision: "r", state: { guildId: id(1), reference: "XEN-INT-A7K42P" } });
@@ -56,6 +98,20 @@ test("portal API authenticates first and rejects forged scope/action fields", as
   assert.equal((await api.POST(request({ ...body, admin: true }))).status, 400);
   assert.equal((await api.POST(request({ ...body, allowedRoutes: ["forged"] }))).status, 400);
   assert.equal((await api.POST(request(body))).status, 200);
+});
+
+test("portal API reports collation failures without blaming migration 009 or exposing driver errors", async (t) => {
+  const previous = process.env.WEBSITE_BOT_TOKEN; process.env.WEBSITE_BOT_TOKEN = "portal-test";
+  t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
+  const logs = [], original = console.error; console.error = (...values) => logs.push(values);
+  t.after(() => { console.error = original; });
+  const api = load("app/api/bot/meeting-portal/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract,
+    "@/lib/meeting-portal": { ...portal(), portalList: async () => { throw Object.assign(new Error("private answer"), { code: "ER_CANT_AGGREGATE_2COLLATIONS", sql: "private SQL" }); } } });
+  const response = await api.POST(new Request("https://xenon.example/api/bot/meeting-portal", { method: "POST", headers: { Authorization: "Bearer portal-test" },
+    body: JSON.stringify({ action: "list", guildId: id(1), actorId: id(3), allowedRoutes: ["interest"] }) }));
+  assert.equal(response.status, 503); assert.equal((await response.json()).code, "PORTAL_COLLATION_MISMATCH");
+  assert.equal(logs[0][1].action, "list"); assert.equal(logs[0][1].databaseCode, "ER_CANT_AGGREGATE_2COLLATIONS");
+  assert.equal(JSON.stringify(logs).includes("private"), false);
 });
 
 function meetingFixture() {

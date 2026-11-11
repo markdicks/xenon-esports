@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { authorizeBot, meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
 import { discordId, meetingId } from "@/lib/meeting-contract";
-import { getStaffProfile, portalDetail, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
+import { getStaffProfile, portalDetail, portalFailure, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(6) };
@@ -32,5 +32,9 @@ export async function POST(request: Request) {
     if (input.operation === "status" && !input.value) return json({ error: "Choose a status" }, 400);
     const result = await portalMutate(input.id, input.guildId, input.allowedRoutes, input.actorId, input.revision, input.operation, input.value);
     return result === "saved" ? json({ success: true }) : json({ error: result === "missing" ? "Submission not found" : `Submission ${result}. Reload before changing it.` }, result === "missing" ? 404 : 409);
-  } catch (error) { console.error("Meeting portal unavailable", error); return json({ error: "Meeting portal unavailable. Check migration 009." }, 503); }
+  } catch (error) {
+    const failure = portalFailure(error, input.action);
+    console.error("Meeting portal unavailable", failure.diagnostic);
+    return json({ error: failure.error, code: failure.code }, 503);
+  }
 }
