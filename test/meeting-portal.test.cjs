@@ -2,9 +2,10 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const load = require("./load-typescript.cjs");
 const contract = load("lib/meeting-contract.ts");
+const outcomeContract = load("lib/meeting-outcome-contract.ts", { "@/lib/meeting-contract": contract });
 const id = (n) => String(100000000000000000n + BigInt(n));
 function portal(pool = {}, meeting = null) { return load("lib/meeting-portal.ts", { "@/lib/db": { getDbPool: () => pool },
-  "@/lib/meetings": { getMeeting: async () => meeting }, "@/lib/meeting-contract": contract }); }
+  "@/lib/meetings": { getMeeting: async () => meeting }, "@/lib/meeting-contract": contract, "@/lib/meeting-outcome-contract": outcomeContract }); }
 test("weekly slots expand using the profile timezone including DST transitions", () => {
   const api = portal();
   const start = Date.parse("2026-10-25T00:00:00Z"), end = start + 3 * 3600000;
@@ -90,7 +91,7 @@ test("profile saves are transactional and invalidate active snapshots without cl
 test("portal API authenticates first and rejects forged scope/action fields", async (t) => {
   const previous = process.env.WEBSITE_BOT_TOKEN; process.env.WEBSITE_BOT_TOKEN = "portal-test";
   t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
-  const api = load("app/api/bot/meeting-portal/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract,
+  const api = load("app/api/bot/meeting-portal/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract, "@/lib/meeting-outcome-contract": outcomeContract,
     "@/lib/meeting-portal": { ...portal(), portalList: async () => ({ items: [], next: null }) } });
   const body = { action: "list", guildId: id(1), actorId: id(3), allowedRoutes: ["interest"] };
   const request = (value, secret = "portal-test") => new Request("https://xenon.example/api/bot/meeting-portal", { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify(value) });
@@ -105,7 +106,7 @@ test("portal API reports collation failures without blaming migration 009 or exp
   t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
   const logs = [], original = console.error; console.error = (...values) => logs.push(values);
   t.after(() => { console.error = original; });
-  const api = load("app/api/bot/meeting-portal/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract,
+  const api = load("app/api/bot/meeting-portal/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract, "@/lib/meeting-outcome-contract": outcomeContract,
     "@/lib/meeting-portal": { ...portal(), portalList: async () => { throw Object.assign(new Error("private answer"), { code: "ER_CANT_AGGREGATE_2COLLATIONS", sql: "private SQL" }); } } });
   const response = await api.POST(new Request("https://xenon.example/api/bot/meeting-portal", { method: "POST", headers: { Authorization: "Bearer portal-test" },
     body: JSON.stringify({ action: "list", guildId: id(1), actorId: id(3), allowedRoutes: ["interest"] }) }));
@@ -125,7 +126,7 @@ test("closing, resending and reopening use authorized CAS writes and preserve ex
   const current = meetingFixture(), writes = [];
   const pool = { execute: async (sql, params) => {
     if (sql.startsWith("UPDATE")) { writes.push([sql, params]); return [{ affectedRows: 1 }]; }
-    if (sql.includes("discord_meeting_history")) return [[]];
+    if (sql.includes("discord_meeting_history") || sql.includes("discord_meeting_outcomes") || sql.includes("discord_meeting_outcome_events")) return [[]];
     if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
     return [[{ strengths: "Editing" }]];
   } };
@@ -150,7 +151,7 @@ test("Discord corrections update the submission and reset the meeting atomically
   const connection = { beginTransaction: async () => {}, execute: async (sql, params) => { writes.push([sql, params]); return [{ affectedRows: 1 }]; },
     commit: async () => { commits++; }, rollback: async () => { rollbacks++; }, release: () => { releases++; } };
   const api = portal({ getConnection: async () => connection, execute: async (sql) => {
-    if (sql.includes("discord_meeting_history")) return [[]];
+    if (sql.includes("discord_meeting_history") || sql.includes("discord_meeting_outcomes") || sql.includes("discord_meeting_outcome_events")) return [[]];
     if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
     return [[{ discord_username: "applicant" }]];
   } }, current);
@@ -172,7 +173,7 @@ test("Discord correction rejects booked meetings, closed records, stale revision
     if (scenario === "scheduled") current.state.status = "scheduled";
     if (scenario === "closed") current.state.workflowStatus = "closed";
     const api = portal({ getConnection: async () => { throw new Error("Unexpected write"); }, execute: async (sql) => {
-      if (sql.includes("discord_meeting_history")) return [[]];
+      if (sql.includes("discord_meeting_history") || sql.includes("discord_meeting_outcomes") || sql.includes("discord_meeting_outcome_events")) return [[]];
       if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
       return [[]];
     } }, current);
@@ -187,10 +188,35 @@ test("a failed source update rolls back the meeting correction and its audit eve
     if (sql.includes("UPDATE interest_submissions")) throw new Error("source unavailable");
     return [{ affectedRows: 1 }];
   }, commit: async () => { committed = true; }, rollback: async () => { rolledBack = true; }, release: () => { released = true; } }), execute: async (sql) => {
-    if (sql.includes("discord_meeting_history")) return [[]];
+    if (sql.includes("discord_meeting_history") || sql.includes("discord_meeting_outcomes") || sql.includes("discord_meeting_outcome_events")) return [[]];
     if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
     return [[]];
   } }, current);
   await assert.rejects(api.portalCorrectDiscord(current.state.id, id(1), ["interest"], id(3), current.revision, "corrected"), /source unavailable/);
   assert.equal(rolledBack, true); assert.equal(committed, false); assert.equal(released, true);
+});
+
+test("follow-up department access requires both current leadership and membership in the manager cohort", async () => {
+  const current = meetingFixture(); current.state.roundNumber = 2; current.state.departments = ["creators"];
+  const api = portal({ execute: async (sql) => {
+    if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
+    if (sql.includes("discord_meeting_outcomes")) return [[{ state: outcomeContract.outcomeSchema.parse({ privateNotes: "STAFF ONLY" }) }]];
+    return [[]];
+  } }, current);
+  const own = { actorId: id(3), departments: ["creators"] };
+  assert.equal((await api.portalDetail(current.state.id, id(1), [], null, own)).outcome.privateNotes, "STAFF ONLY");
+  for (const access of [{ actorId: id(4), departments: ["creators"] }, { actorId: id(3), departments: [] }, { actorId: id(2), departments: ["creators"] }]) {
+    assert.equal(await api.portalDetail(current.state.id, id(1), [], null, access), null);
+  }
+});
+
+test("applicants with an existing staff role still cannot read their own private outcome notes", async () => {
+  const current = meetingFixture(); let privateReads = 0;
+  const api = portal({ execute: async (sql) => {
+    if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
+    if (sql.includes("discord_meeting_outcomes") || sql.includes("discord_meeting_outcome_events")) { privateReads++; throw new Error("Private data must not be loaded"); }
+    return [[]];
+  } }, current);
+  const detail = await api.portalDetail(current.state.id, id(1), ["interest"], null, { actorId: id(2), departments: [] });
+  assert.equal(detail.outcome, null); assert.deepEqual(detail.outcomeEvents, []); assert.equal(privateReads, 0);
 });

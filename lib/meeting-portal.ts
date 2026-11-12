@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getDbPool } from "@/lib/db";
 import { getMeeting } from "@/lib/meetings";
 import { meetingFollowUp, meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
+import { outcomeSchema } from "@/lib/meeting-outcome-contract";
 
 export const routeKeys = ["application", "interest", "contact-partnerships", "contact-business", "contact-media", "contact-general-enquiry"] as const;
 export type RouteKey = typeof routeKeys[number];
@@ -101,35 +102,58 @@ export async function portalSource(reference: string) {
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT * FROM (${sources}) AS source WHERE reference = ?`, [reference]);
   return rows[0] || null;
 }
-export async function portalList(guildId: string, allowed: string[], before: string | null, status: string | null, search: string) {
-  if (!allowed.length) return { items: [], next: null };
+type PortalAccess = { actorId: string; departments: string[] };
+function departmentAccess(state: MeetingState, access?: PortalAccess) {
+  return Boolean(access && state.departments.some((key) => access.departments.includes(key))
+    && state.participants.some((person) => person.kind === "manager" && person.userId === access.actorId));
+}
+export async function portalList(guildId: string, allowed: string[], before: string | null, status: string | null, search: string, access?: PortalAccess) {
+  if (!allowed.length && !access?.departments.length) return { items: [], next: null };
+  const departmentClause = access?.departments.length ? `OR (JSON_CONTAINS(JSON_EXTRACT(meeting.state, '$.participants'), JSON_OBJECT('kind', 'manager', 'userId', ?))
+    AND (${access.departments.map(() => "JSON_CONTAINS(JSON_EXTRACT(meeting.state, '$.departments'), JSON_QUOTE(?))").join(" OR ")}))` : "";
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT meeting.id, meeting.revision, meeting.state, source.* FROM discord_meetings AS meeting
     JOIN (${sources}) AS source ON source.reference = meeting.public_reference
     WHERE meeting.guild_id = ? AND (? IS NULL OR (meeting.created_at, meeting.id) < (SELECT created_at, id FROM discord_meetings WHERE id = ? AND guild_id = ?)) AND (LENGTH(?) = 0 OR source.reference LIKE ? OR source.discord_username LIKE ?)
     AND (? IS NULL OR ${sqlText("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.workflowStatus')), 'new')")} = ?)
-    AND ${sqlText("(CASE WHEN source.type <> 'contact' THEN source.type WHEN LOWER(TRIM(source.subject)) = 'partnerships' THEN 'contact-partnerships' WHEN LOWER(TRIM(source.subject)) = 'business' THEN 'contact-business' WHEN LOWER(TRIM(source.subject)) = 'media' THEN 'contact-media' ELSE 'contact-general-enquiry' END)")}
-      IN (${allowed.map(() => "?").join(",")}) ORDER BY meeting.created_at DESC, meeting.id DESC LIMIT 26`,
-  [guildId, before, before, guildId, search, `%${search}%`, `%${search}%`, status, status, ...allowed]);
+    AND (${sqlText("(CASE WHEN source.type <> 'contact' THEN source.type WHEN LOWER(TRIM(source.subject)) = 'partnerships' THEN 'contact-partnerships' WHEN LOWER(TRIM(source.subject)) = 'business' THEN 'contact-business' WHEN LOWER(TRIM(source.subject)) = 'media' THEN 'contact-media' ELSE 'contact-general-enquiry' END)")}
+      IN (${allowed.map(() => "?").join(",") || "NULL"}) ${departmentClause}) ORDER BY meeting.created_at DESC, meeting.id DESC LIMIT 26`,
+  [guildId, before, before, guildId, search, `%${search}%`, `%${search}%`, status, status, ...allowed, ...(access?.departments.length ? [access.actorId, ...access.departments] : [])]);
   const page = rows.slice(0, 25);
+  const outcomes = new Map<string, { status: string; failed: boolean }>();
+  if (page.length) {
+    try {
+      const [saved] = await getDbPool().execute<RowDataPacket[]>(`SELECT meeting_id, state FROM discord_meeting_outcomes WHERE meeting_id IN (${page.map(() => "?").join(",")})`, page.map((row) => row.id));
+      for (const row of saved) { const value = outcomeSchema.parse(typeof row.state === "string" ? JSON.parse(row.state) : row.state); outcomes.set(row.meeting_id, { status: value.status, failed: Boolean(value.deliveryFailure) || value.deliveryPaused || value.grant.paused }); }
+    } catch (error) { if ((error as { code?: string }).code !== "ER_NO_SUCH_TABLE") throw error; }
+  }
   return { items: page.map((row) => {
     const state = meetingStateSchema.parse(typeof row.state === "string" ? JSON.parse(row.state) : row.state);
     return { id: row.id, reference: state.reference, type: row.type, discordUsername: row.discord_username,
       workflowStatus: state.workflowStatus, status: state.status, retryPaused: state.retryPaused,
-      createdAt: new Date(row.created_at).toISOString(), ...meetingFollowUp(state, new Date(row.created_at).getTime()) };
+      roundNumber: state.roundNumber, postMeetingStatus: outcomes.get(row.id)?.status,
+      createdAt: new Date(row.created_at).toISOString(), ...meetingFollowUp(state, new Date(row.created_at).getTime()),
+      postMeetingDeliveryFailed: outcomes.get(row.id)?.failed || false };
   }), next: rows.length > 25 ? page[24].id as string : null };
 }
-export async function portalDetail(id: string, guildId: string, allowed: string[], historyBefore: number | null = null) {
+export async function portalDetail(id: string, guildId: string, allowed: string[], historyBefore: number | null = null, access?: PortalAccess) {
   const current = await getMeeting(id);
   if (!current || current.state.guildId !== guildId) return null;
   const source = await portalSource(current.state.reference);
-  if (!source || !allowed.includes(submissionRoute(source.type, source.subject))) return null;
+  if (!source || (!allowed.includes(submissionRoute(source.type, source.subject)) && !departmentAccess(current.state, access))) return null;
   const [history] = await getDbPool().execute<RowDataPacket[]>(`SELECT id, actor_id, event_type, created_at,
     JSON_OBJECT('status', JSON_EXTRACT(detail, '$.status'), 'workflowStatus', JSON_EXTRACT(detail, '$.workflowStatus'),
       'attempts', JSON_EXTRACT(detail, '$.attempts'), 'retryPaused', JSON_EXTRACT(detail, '$.retryPaused')) AS detail FROM discord_meeting_history
     WHERE meeting_id = ? AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT 26`, [id, historyBefore, historyBefore]);
   const prefix = current.state.reference.split("-")[1], table = prefix === "APP" ? "applications" : prefix === "INT" ? "interest_submissions" : "contact_submissions";
   const [answers] = await getDbPool().execute<RowDataPacket[]>(`SELECT * FROM ${table} WHERE ${prefix === "INT" ? "reference_code" : "public_reference"} = ?`, [current.state.reference]);
-  return { ...current, source: { type: source.type, createdAt: new Date(source.created_at).toISOString() }, answers: answers[0] || {},
+  let outcome = null, outcomeEvents: unknown[] = [];
+  if (access?.actorId !== current.state.applicantId) try {
+    const [saved] = await getDbPool().execute<RowDataPacket[]>("SELECT state FROM discord_meeting_outcomes WHERE meeting_id = ?", [id]);
+    outcome = saved[0] ? outcomeSchema.parse(typeof saved[0].state === "string" ? JSON.parse(saved[0].state) : saved[0].state) : null;
+    const [events] = await getDbPool().execute<RowDataPacket[]>("SELECT actor_id, event_type, created_at FROM discord_meeting_outcome_events WHERE meeting_id = ? ORDER BY id DESC LIMIT 25", [id]);
+    outcomeEvents = events.map((event) => ({ actorId: event.actor_id, kind: event.event_type, at: new Date(event.created_at).toISOString() }));
+  } catch (error) { if ((error as { code?: string }).code !== "ER_NO_SUCH_TABLE") throw error; }
+  return { ...current, outcome, outcomeEvents, source: { type: source.type, createdAt: new Date(source.created_at).toISOString() }, answers: answers[0] || {},
     health: meetingFollowUp(current.state, new Date(source.created_at).getTime()),
     history: history.slice(0, 25).map((event) => ({ id: String(event.id), actorId: event.actor_id, kind: event.event_type,
       at: new Date(event.created_at).toISOString(), detail: (() => {
@@ -138,8 +162,8 @@ export async function portalDetail(id: string, guildId: string, allowed: string[
       })() })),
     historyNext: history.length > 25 ? Number(history[24].id) : null };
 }
-export async function portalMutate(id: string, guildId: string, allowed: string[], actorId: string, revision: string, action: string, value?: string) {
-  const current = await portalDetail(id, guildId, allowed);
+export async function portalMutate(id: string, guildId: string, allowed: string[], actorId: string, revision: string, action: string, value?: string, access?: PortalAccess) {
+  const current = await portalDetail(id, guildId, allowed, null, access);
   if (!current) return "missing";
   if (current.revision !== revision) return "conflict";
   const state = current.state;
@@ -164,8 +188,8 @@ export async function portalMutate(id: string, guildId: string, allowed: string[
     WHERE id = ? AND guild_id = ? AND revision = ?`, [JSON.stringify(state), randomUUID(), state.completed, id, guildId, revision]);
   return result.affectedRows ? "saved" : "conflict";
 }
-export async function portalCorrectDiscord(id: string, guildId: string, allowed: string[], actorId: string, revision: string, discordUsername: string) {
-  const current = await portalDetail(id, guildId, allowed);
+export async function portalCorrectDiscord(id: string, guildId: string, allowed: string[], actorId: string, revision: string, discordUsername: string, access?: PortalAccess) {
+  const current = await portalDetail(id, guildId, allowed, null, access);
   if (!current) return "missing";
   if (current.revision !== revision) return "conflict";
   const state = current.state, username = discordUsername.trim();

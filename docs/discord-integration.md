@@ -122,6 +122,22 @@ without clearing existing leases. No database migration is required.
 
 ## Admin Portal Rework
 
+### Post-Meeting Outcomes
+
+Migration `010_meeting_outcomes.sql` adds private, versioned meeting outcomes and
+an administrator-approved onboarding-role policy. Follow-up meetings receive
+numbered rows under the same submission reference while retaining the original
+meeting/channel. The authenticated `/api/bot/meeting-followup` endpoint supports
+voice-presence confirmation, proposals, applicant responses, delivery receipts,
+role-assignment leases and follow-up creation. Public availability responses never
+contain private staff notes. Department-scoped inbox access requires a current
+selected-department role and membership in that meeting's manager cohort.
+
+Apply 010 before deploying the matching bot. Existing form inserts and basic
+availability work independently of outcome processing; migration 010 is not
+automatically executed by the application. See the bot repository's
+`docs/post-meeting-onboarding.md` for deployment and live smoke-test steps.
+
 The full meeting portal requires `sql/009_meeting_portal.sql` after migration 008.
 It adds per-user weekly staff availability and an audit table with atomic MySQL
 triggers. Deploy this website before the matching bot. The database user must be
