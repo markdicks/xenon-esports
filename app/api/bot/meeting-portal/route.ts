@@ -5,7 +5,7 @@ import { departmentKeys } from "@/lib/meeting-outcome-contract";
 import { getStaffProfile, portalCorrectDiscord, portalDetail, portalFailure, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(6), allowedDepartments: z.array(z.enum(departmentKeys)).max(6).default([]) };
+const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(routeKeys.length), allowedDepartments: z.array(z.enum(departmentKeys)).max(6).default([]) };
 const schema = z.discriminatedUnion("action", [
   z.object({ ...context, action: z.literal("list"), before: meetingId.nullable().default(null), status: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).nullable().default(null), search: z.string().max(120).default("") }).strict(),
   z.object({ ...context, action: z.literal("detail"), id: meetingId, historyBefore: z.number().int().positive().nullable().default(null) }).strict(),

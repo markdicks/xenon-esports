@@ -8,7 +8,8 @@ module.exports = function loadTypeScript(file, overrides = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const loaded = { exports: {} };
-  const resolve = (name) => Object.hasOwn(overrides, name) ? overrides[name] : require(name);
+  const resolve = (name) => Object.hasOwn(overrides, name) ? overrides[name]
+    : name.startsWith("@/data/") ? module.exports(`${name.slice(2)}.ts`, overrides) : require(name);
   new Function("require", "module", "exports", compiled)(resolve, loaded, loaded.exports);
   return loaded.exports;
 };

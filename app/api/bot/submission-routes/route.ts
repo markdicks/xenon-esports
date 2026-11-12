@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { interestRoutes } from "@/data/interest-routing";
 import {
   getDiscordSubmissionRoutes,
   saveDiscordSubmissionRoutes,
@@ -21,6 +22,7 @@ const routesSchema = z.object({
   "contact-business": roleIdsSchema,
   "contact-media": roleIdsSchema,
   "contact-general-enquiry": roleIdsSchema,
+  ...Object.fromEntries(interestRoutes.map(([key]) => [key, roleIdsSchema.optional()])),
 }).strict();
 const updateSchema = z.object({
   guildId: guildIdSchema,

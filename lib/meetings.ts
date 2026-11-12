@@ -64,20 +64,21 @@ export async function claimMeetings(guildId: string) {
   return jobs;
 }
 export async function listHistoricalMeetingCandidates(after: string | null) {
-  const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT pending.reference, pending.submission_type, pending.subject, pending.status
+  const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT pending.reference, pending.submission_type, pending.subject, pending.status, pending.interests
     FROM (
-      SELECT public_reference AS reference, 'application' AS submission_type, discord_username, NULL AS subject, NULL AS status FROM applications
+      SELECT public_reference AS reference, 'application' AS submission_type, discord_username, NULL AS subject, NULL AS status, NULL AS interests FROM applications
       UNION ALL
-      SELECT reference_code AS reference, 'interest' AS submission_type, discord_username, NULL AS subject, status FROM interest_submissions
+      SELECT reference_code AS reference, 'interest' AS submission_type, discord_username, NULL AS subject, status, interests FROM interest_submissions
       UNION ALL
-      SELECT public_reference AS reference, 'contact' AS submission_type, discord_username, subject, NULL AS status FROM contact_submissions
+      SELECT public_reference AS reference, 'contact' AS submission_type, discord_username, subject, NULL AS status, NULL AS interests FROM contact_submissions
     ) AS pending
     LEFT JOIN discord_meetings AS meeting ON meeting.public_reference = pending.reference
     WHERE meeting.public_reference IS NULL AND pending.discord_username IS NOT NULL AND TRIM(pending.discord_username) <> ''
       AND (? IS NULL OR pending.reference > ?)
     ORDER BY pending.reference LIMIT 50`, [after, after]);
   return rows.map((row) => ({ reference: String(row.reference), type: String(row.submission_type),
-    subject: row.subject == null ? null : String(row.subject), status: row.status == null ? null : String(row.status) }));
+    subject: row.subject == null ? null : String(row.subject), status: row.status == null ? null : String(row.status),
+    ...(row.interests != null ? { interests: typeof row.interests === "string" ? JSON.parse(row.interests) : row.interests } : {}) }));
 }
 export async function listPausedMeetings(guildId: string) {
   const [rows] = await getDbPool().execute<MeetingRow[]>(`SELECT id, revision, state FROM discord_meetings

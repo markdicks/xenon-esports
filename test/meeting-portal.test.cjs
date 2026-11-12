@@ -220,3 +220,17 @@ test("applicants with an existing staff role still cannot read their own private
   const detail = await api.portalDetail(current.state.id, id(1), ["interest"], null, { actorId: id(2), departments: [] });
   assert.equal(detail.outcome, null); assert.deepEqual(detail.outcomeEvents, []); assert.equal(privateReads, 0);
 });
+
+test("interest-area access binds selected labels in SQL and denies unrelated interest details", async () => {
+  const current = meetingFixture(), calls = [];
+  const api = portal({ execute: async (sql, params) => {
+    calls.push([sql, params]);
+    if (sql.includes("SELECT * FROM (") && sql.includes("AS source")) return [[{ type: "interest", subject: null, interests: '["Competitive","Streaming"]', created_at: new Date() }]];
+    return [[]];
+  } }, current);
+  await api.portalList(id(1), ["interest-competitive"], null, null, "");
+  assert.match(calls[0][0], /JSON_CONTAINS\(source.interests, JSON_QUOTE\(\?\)\)/);
+  assert.equal(calls[0][1].at(-1), "Competitive"); assert.equal(calls[0][0].includes("Competitive"), false);
+  assert.ok(await api.portalDetail(current.state.id, id(1), ["interest-competitive"]));
+  assert.equal(await api.portalDetail(current.state.id, id(1), ["interest-graphics"]), null);
+});

@@ -166,6 +166,10 @@ test("submission route API protects reads and persists validated multi-role rout
   const savedResponse = await api.PUT(request({ guildId: "111111111111111111", routes }));
   assert.equal(savedResponse.status, 200);
   assert.deepEqual(saved, [{ guildId: "111111111111111111", value: routes }]);
+  const extended = { ...routes, "interest-competitive": ["555555555555555555"], "interest-streaming": [] };
+  assert.equal((await api.PUT(request({ guildId: "111111111111111111", routes: extended }))).status, 200);
+  assert.deepEqual(saved.at(-1).value, extended);
+  assert.equal((await api.PUT(request({ guildId: "111111111111111111", routes: { ...routes, "interest-competitive": ["bad"] } }))).status, 400);
 });
 
 test("submission route storage defaults cleanly and uses parameterized JSON upserts", async () => {
@@ -174,6 +178,7 @@ test("submission route storage defaults cleanly and uses parameterized JSON upse
     application: ["111111111111111111"], interest: [],
     "contact-partnerships": ["222222222222222222"], "contact-business": [],
     "contact-media": [], "contact-general-enquiry": ["333333333333333333"],
+    "interest-competitive": ["444444444444444444"], "interest-other": [],
   };
   const { getDiscordSubmissionRoutes, saveDiscordSubmissionRoutes } = loadTypeScript("lib/discord-submission-routes.ts", {
     "@/lib/db": { getDbPool: () => ({ execute: async (sql, params) => {

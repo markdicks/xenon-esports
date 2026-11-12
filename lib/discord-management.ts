@@ -13,6 +13,14 @@ const leadAccessSchema = z.object({
   channelId: id, roleId: id, managed: permissions, allow: permissions, deny: permissions,
 }).strict().refine((entry) => entry.allow.every((key) => entry.managed.includes(key) && !entry.deny.includes(key))
   && entry.deny.every((key) => entry.managed.includes(key)));
+const ownedRoleSchema = z.object({
+  id: z.union([id, z.string().regex(/^pending:[a-f0-9-]{36}$/)]), name: z.string().trim().min(1).max(100), permissions,
+}).strict();
+const teamSchema = z.object({
+  id: z.string().uuid(), name: z.string().trim().min(1).max(100), categoryId: id.nullable(),
+  status: z.enum(["creating", "active", "deleting"]), roles: z.array(ownedRoleSchema).min(1).max(3),
+  pendingChannels: z.array(z.object({ id: z.string().uuid(), name: z.string().min(1).max(100), type: z.union([z.literal(0), z.literal(2)]) }).strict()).max(7),
+}).strict().refine((team) => new Set(team.roles.map((role) => role.id)).size === team.roles.length);
 const pillarSchema = z.object({
     key: z.enum(pillarKeys),
     leadRoleId: id.nullable(),
@@ -31,10 +39,14 @@ const pillarSchema = z.object({
       (entries) => new Set(entries.map((entry) => `${entry.channelId}:${entry.roleId}`)).size === entries.length,
     ).default([]),
     leadAccessPending: z.boolean().default(false),
-}).strict();
+    teams: z.array(teamSchema).max(3).optional(),
+}).strict().refine((pillar) => (!pillar.teams?.length || pillar.key === "competitive")
+  && new Set(pillar.teams?.map((team) => team.id)).size === (pillar.teams?.length || 0)
+  && new Set(pillar.teams?.map((team) => team.categoryId).filter(Boolean)).size === (pillar.teams?.filter((team) => team.categoryId).length || 0));
 export const managementSchema = z.object({
   pillars: z.array(pillarSchema).length(pillarKeys.length).refine((pillars) => new Set(pillars.map((pillar) => pillar.key)).size === pillarKeys.length
-    && pillars.reduce((total, pillar) => total + pillar.leadAccess.length, 0) <= 1000),
+    && pillars.reduce((total, pillar) => total + pillar.leadAccess.length, 0) <= 1000
+    && (() => { const ids = pillars.flatMap((pillar) => [...pillar.subroles, ...(pillar.teams || []).flatMap((team) => team.roles)]).map((role) => role.id); return new Set(ids).size === ids.length; })()),
 }).strict();
 const storedManagementSchema = z.union([
   managementSchema,

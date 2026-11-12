@@ -68,6 +68,17 @@ test("management storage uses parameterized SQL and revision-based compare-and-s
   assert.equal(queries[1][1][4], saved);
 });
 
+test("competitive team storage supports separate quotas and rejects teams outside Competitive", () => {
+  const { managementSchema } = loadTypeScript("lib/discord-management.ts", { "@/lib/db": { getDbPool: () => { throw new Error("Unexpected DB access"); } } });
+  const saved = structuredClone(config), team = { id: "0899fdb8-5e85-45fb-b399-5d77523f8300", name: "Alpha", categoryId: "111111111111111111", status: "active",
+    roles: [{ id: "222222222222222222", name: "Alpha", permissions: ["ViewChannel"] }], pendingChannels: [] };
+  saved.pillars[2].teams = [team]; assert.equal(managementSchema.safeParse(saved).success, true);
+  saved.pillars[2].teams = Array.from({ length: 4 }, () => team); assert.equal(managementSchema.safeParse(saved).success, false);
+  saved.pillars[2].teams = [team]; team.roles = Array.from({ length: 4 }, () => team.roles[0]); assert.equal(managementSchema.safeParse(saved).success, false);
+  team.roles = [{ id: "222222222222222222", name: "Alpha", permissions: ["ViewChannel"] }];
+  saved.pillars[0].teams = saved.pillars[2].teams; delete saved.pillars[2].teams; assert.equal(managementSchema.safeParse(saved).success, false);
+});
+
 test("lead permission ownership defaults safely for old records and validates supported baseline flags", async () => {
   const management = loadTypeScript("lib/discord-management.ts", { "@/lib/db": { getDbPool: () => { throw new Error("Unexpected DB access"); } } });
   const legacy = structuredClone(config);

@@ -3,6 +3,7 @@ import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { getDbPool } from "@/lib/db";
 import { meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
 import { outcomeSchema, rolePolicySchema, type MeetingOutcome } from "@/lib/meeting-outcome-contract";
+import { selectedInterestRoutes } from "@/data/interest-routing";
 
 const parsed = (value: unknown) => typeof value === "string" ? JSON.parse(value) : value;
 const manuallyStopped = (meeting: MeetingState) => ["accepted", "rejected", "closed"].includes(meeting.workflowStatus)
@@ -37,7 +38,12 @@ export async function readMeetingOutcome(id: string, guildId: string) {
     const category = String(source[0]?.subject || "").trim().toLowerCase();
     route = `contact-${["partnerships", "business", "media"].includes(category) ? category : "general-enquiry"}`;
   }
-  return { meeting, outcome: outcomeSchema.parse(parsed(rows[0].outcome_state) || {}), revision: rows[0].revision || null, route };
+  let routes = [route];
+  if (route === "interest") {
+    const [source] = await getDbPool().execute<RowDataPacket[]>("SELECT interests FROM interest_submissions WHERE reference_code = ?", [meeting.reference]);
+    routes = [route, ...selectedInterestRoutes(source[0]?.interests)];
+  }
+  return { meeting, outcome: outcomeSchema.parse(parsed(rows[0].outcome_state) || {}), revision: rows[0].revision || null, route, routes };
 }
 export async function listMeetingOutcomes(guildId: string, after: string | null) {
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT meeting.id, meeting.state AS meeting_state, outcome.state AS outcome_state

@@ -5,8 +5,9 @@ import { getDbPool } from "@/lib/db";
 import { getMeeting } from "@/lib/meetings";
 import { meetingFollowUp, meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
 import { outcomeSchema } from "@/lib/meeting-outcome-contract";
+import { interestRoutes, selectedInterestRoutes } from "@/data/interest-routing";
 
-export const routeKeys = ["application", "interest", "contact-partnerships", "contact-business", "contact-media", "contact-general-enquiry"] as const;
+export const routeKeys = ["application", "interest", "contact-partnerships", "contact-business", "contact-media", "contact-general-enquiry", ...interestRoutes.map(([key]) => key)] as const;
 export type RouteKey = typeof routeKeys[number];
 // Expressions are fixed SQL, never user input. Older tables and connection
 // literals can have different defaults on Hostinger; normalize comparisons here.
@@ -90,9 +91,9 @@ export async function applyStandingAvailability(state: MeetingState) {
   }
 }
 const sources = `SELECT ${sqlText("public_reference")} AS reference, ${sqlText("'application'")} AS type,
-    ${sqlText("discord_username")} AS discord_username, ${sqlText("NULL")} AS subject, created_at FROM applications
-  UNION ALL SELECT ${sqlText("reference_code")}, ${sqlText("'interest'")}, ${sqlText("discord_username")}, ${sqlText("NULL")}, created_at FROM interest_submissions
-  UNION ALL SELECT ${sqlText("public_reference")}, ${sqlText("'contact'")}, ${sqlText("discord_username")}, ${sqlText("subject")}, created_at FROM contact_submissions`;
+    ${sqlText("discord_username")} AS discord_username, ${sqlText("NULL")} AS subject, created_at, ${sqlText("NULL")} AS interests FROM applications
+  UNION ALL SELECT ${sqlText("reference_code")}, ${sqlText("'interest'")}, ${sqlText("discord_username")}, ${sqlText("NULL")}, created_at, ${sqlText("interests")} FROM interest_submissions
+  UNION ALL SELECT ${sqlText("public_reference")}, ${sqlText("'contact'")}, ${sqlText("discord_username")}, ${sqlText("subject")}, created_at, ${sqlText("NULL")} FROM contact_submissions`;
 export function submissionRoute(type: string, subject: string | null): RouteKey {
   if (type !== "contact") return type as RouteKey;
   const key = String(subject || "").toLowerCase().trim();
@@ -111,13 +112,15 @@ export async function portalList(guildId: string, allowed: string[], before: str
   if (!allowed.length && !access?.departments.length) return { items: [], next: null };
   const departmentClause = access?.departments.length ? `OR (JSON_CONTAINS(JSON_EXTRACT(meeting.state, '$.participants'), JSON_OBJECT('kind', 'manager', 'userId', ?))
     AND (${access.departments.map(() => "JSON_CONTAINS(JSON_EXTRACT(meeting.state, '$.departments'), JSON_QUOTE(?))").join(" OR ")}))` : "";
+  const areas = interestRoutes.filter(([key]) => allowed.includes(key)).map(([, label]) => label);
+  const interestClause = areas.length ? `OR (source.type = 'interest' AND (${areas.map(() => "JSON_CONTAINS(source.interests, JSON_QUOTE(?))").join(" OR ")}))` : "";
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT meeting.id, meeting.revision, meeting.state, source.* FROM discord_meetings AS meeting
     JOIN (${sources}) AS source ON source.reference = meeting.public_reference
     WHERE meeting.guild_id = ? AND (? IS NULL OR (meeting.created_at, meeting.id) < (SELECT created_at, id FROM discord_meetings WHERE id = ? AND guild_id = ?)) AND (LENGTH(?) = 0 OR source.reference LIKE ? OR source.discord_username LIKE ?)
     AND (? IS NULL OR ${sqlText("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.workflowStatus')), 'new')")} = ?)
     AND (${sqlText("(CASE WHEN source.type <> 'contact' THEN source.type WHEN LOWER(TRIM(source.subject)) = 'partnerships' THEN 'contact-partnerships' WHEN LOWER(TRIM(source.subject)) = 'business' THEN 'contact-business' WHEN LOWER(TRIM(source.subject)) = 'media' THEN 'contact-media' ELSE 'contact-general-enquiry' END)")}
-      IN (${allowed.map(() => "?").join(",") || "NULL"}) ${departmentClause}) ORDER BY meeting.created_at DESC, meeting.id DESC LIMIT 26`,
-  [guildId, before, before, guildId, search, `%${search}%`, `%${search}%`, status, status, ...allowed, ...(access?.departments.length ? [access.actorId, ...access.departments] : [])]);
+      IN (${allowed.map(() => "?").join(",") || "NULL"}) ${interestClause} ${departmentClause}) ORDER BY meeting.created_at DESC, meeting.id DESC LIMIT 26`,
+  [guildId, before, before, guildId, search, `%${search}%`, `%${search}%`, status, status, ...allowed, ...areas, ...(access?.departments.length ? [access.actorId, ...access.departments] : [])]);
   const page = rows.slice(0, 25);
   const outcomes = new Map<string, { status: string; failed: boolean }>();
   if (page.length) {
@@ -139,7 +142,8 @@ export async function portalDetail(id: string, guildId: string, allowed: string[
   const current = await getMeeting(id);
   if (!current || current.state.guildId !== guildId) return null;
   const source = await portalSource(current.state.reference);
-  if (!source || (!allowed.includes(submissionRoute(source.type, source.subject)) && !departmentAccess(current.state, access))) return null;
+  if (!source || (!allowed.includes(submissionRoute(source.type, source.subject))
+    && !(source.type === "interest" && selectedInterestRoutes(source.interests).some((key) => allowed.includes(key))) && !departmentAccess(current.state, access))) return null;
   const [history] = await getDbPool().execute<RowDataPacket[]>(`SELECT id, actor_id, event_type, created_at,
     JSON_OBJECT('status', JSON_EXTRACT(detail, '$.status'), 'workflowStatus', JSON_EXTRACT(detail, '$.workflowStatus'),
       'attempts', JSON_EXTRACT(detail, '$.attempts'), 'retryPaused', JSON_EXTRACT(detail, '$.retryPaused')) AS detail FROM discord_meeting_history
