@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
-import { discordId, meetingId } from "@/lib/meeting-contract";
+import { discordId, meetingId, minimumAvailabilitySlots } from "@/lib/meeting-contract";
 import { getMeeting, saveAvailability, validParticipantToken } from "@/lib/meetings";
 export const runtime = "nodejs";
 const credentials = z.object({ userId: discordId, token: z.string().regex(/^[a-f0-9]{64}$/) });
@@ -41,8 +41,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         channelUrl: state.channelId && state.attendeeIds.includes(person.userId) ? `https://discord.com/channels/${state.guildId}/${state.channelId}` : null } });
     }
     const result = await saveAvailability(id, body.data.userId, body.data.slots, body.data.timezone);
-    if (result === "saved") return json({ success: true });
-    const errors = { missing: "Invitation not found", closed: "This meeting is booked or the invitation has expired", invalid: "Some selected times have passed. Refresh and choose future times", conflict: "Availability changed while saving. Please try again" };
-    return json({ error: errors[result] }, result === "missing" ? 404 : result === "invalid" ? 400 : 409);
+    if (typeof result !== "string") return json({ success: true, slots: result.slots, serverNow: result.serverNow });
+    const errors = { missing: "Invitation not found", closed: "This meeting is booked or the invitation has expired", invalid: "Choose valid 30-minute times within this meeting's availability window", too_few: `Select at least ${minimumAvailabilitySlots} future times, at least two hours from now`, conflict: "Availability changed while saving. Please try again" };
+    return json({ error: errors[result], serverNow: Date.now() }, result === "missing" ? 404 : result === "invalid" || result === "too_few" ? 400 : 409);
   } catch (error) { console.error("Could not save meeting availability", error); return json({ error: "Availability could not be saved. Please try again shortly" }, 503); }
 }

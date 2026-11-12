@@ -1,6 +1,6 @@
 "use client";
-import { useMemo, useState, useSyncExternalStore } from "react";
-import { slotLength } from "@/lib/meeting-contract";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { futureAvailabilitySlots, minimumAvailabilitySlots, slotLength } from "@/lib/meeting-contract";
 
 export type AvailabilityFormProps = { id: string; userId: string; token: string; initialSlots: number[]; initialTimezone: string;
   windowStart: number; windowEnd: number; initialResponded: boolean; status: string; scheduledAt: number | null; channelUrl: string | null; serverNow: number; proposedSlots?: number[]; attending?: boolean;
@@ -14,14 +14,26 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
   const [slots, setSlots] = useState(new Set(props.initialSlots));
   const [dayIndex, setDayIndex] = useState(0), [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(props.initialResponded), [error, setError] = useState("");
-  const now = props.serverNow;
+  const [clock, setClock] = useState(props.serverNow);
+  const anchor = useRef<{ serverNow: number; measuredAt: number } | null>(null);
+  useEffect(() => {
+    anchor.current = { serverNow: props.serverNow, measuredAt: performance.now() };
+    const advance = () => {
+      const current = anchor.current;
+      if (current) setClock(current.serverNow + Math.max(0, performance.now() - current.measuredAt));
+    };
+    const timer = window.setInterval(advance, 15_000);
+    window.addEventListener("focus", advance); document.addEventListener("visibilitychange", advance);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", advance); document.removeEventListener("visibilitychange", advance); };
+  }, [props.serverNow]);
+  const now = Math.max(props.serverNow, clock);
+  const selected = useMemo(() => futureAvailabilitySlots(Array.from(slots), props.windowStart, props.windowEnd, now), [slots, props.windowStart, props.windowEnd, now]);
   const timezones = useMemo(() => Array.from(new Set([timezone, "UTC", ...Intl.supportedValuesOf("timeZone")])).sort(), [timezone]);
   const days = useMemo(() => {
     const groups = new Map<string, number[]>();
     const date = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" });
     const offered = props.proposedSlots ?? Array.from({ length: (props.windowEnd - props.windowStart) / slotLength }, (_, index) => props.windowStart + index * slotLength);
-    for (const at of [...offered].sort((a, b) => a - b)) {
-      if (at < now + 2 * 60 * 60 * 1000) continue;
+    for (const at of futureAvailabilitySlots(offered, props.windowStart, props.windowEnd, now).sort((a, b) => a - b)) {
       const key = date.format(at); if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(at);
     }
     return Array.from(groups.values());
@@ -38,12 +50,22 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
     {props.channelUrl && <a href={props.channelUrl} rel="noreferrer" className={`${control} mt-6 inline-flex items-center`}>Open meeting in Discord</a>}</section>;
   if (expired) return <p className="mt-8 text-steel">This availability window has closed. Please contact Xenon in Discord for the next step.</p>;
   async function save(values: number[]) {
+    const current = anchor.current;
+    const checkedAt = current ? current.serverNow + Math.max(0, performance.now() - current.measuredAt) : now;
+    const future = futureAvailabilitySlots(values, props.windowStart, props.windowEnd, checkedAt);
+    if (values.length > 0 && future.length < minimumAvailabilitySlots) {
+      setSlots(new Set(future)); setSaved(false); setError(`Select at least ${minimumAvailabilitySlots} future times, at least two hours from now`); return;
+    }
     setBusy(true); setError("");
     try {
       const response = await fetch(`/api/meetings/${props.id}`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: props.userId, token: props.token, slots: values, timezone }) });
-      const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not save availability");
-      setSlots(new Set(values)); setSaved(true);
+        body: JSON.stringify({ userId: props.userId, token: props.token, slots: future, timezone }) });
+      const result = await response.json();
+      if (Number.isFinite(result.serverNow)) {
+        anchor.current = { serverNow: result.serverNow, measuredAt: performance.now() }; setClock(result.serverNow);
+      }
+      if (!response.ok) throw new Error(result.error || "Could not save availability");
+      setSlots(new Set(result.slots ?? future)); setSaved(true);
     } catch (err) { setError(err instanceof Error ? err.message : "Could not save availability"); }
     finally { setBusy(false); }
   }
@@ -65,9 +87,9 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
         <input type="checkbox" checked={slots.has(at)} className="h-4 w-4 accent-cyan-300" onChange={() => { setSlots((old) => { const next = new Set(old); if (next.has(at)) next.delete(at); else next.add(at); return next; }); setSaved(false); }} />{timeLabel(at)}</label>;
       })}</div>
     </fieldset>
-    <p className="mt-4 text-sm text-steel">{slots.size} selected across all days</p>
+    <p aria-live="polite" className="mt-4 text-sm text-steel">{selected.length} future times selected (minimum {minimumAvailabilitySlots})</p>
     {error && <p role="alert" className="mt-4 text-sm text-volt">{error}</p>}
-    <div className="mt-6 flex flex-col gap-3 sm:flex-row"><button disabled={busy || slots.size === 0} onClick={() => save(Array.from(slots))} className={`${control} bg-ion/10 font-bold text-ion`}>{busy ? "Saving..." : "Save availability"}</button>
+    <div className="mt-6 flex flex-col gap-3 sm:flex-row"><button disabled={busy || selected.length < minimumAvailabilitySlots} onClick={() => save(Array.from(slots))} className={`${control} bg-ion/10 font-bold text-ion`}>{busy ? "Saving..." : "Save availability"}</button>
       <button disabled={busy} onClick={() => save([])} className={control}>No suitable times</button></div>
   </section>;
 }

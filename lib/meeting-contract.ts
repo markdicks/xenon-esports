@@ -3,6 +3,12 @@ import { z } from "zod";
 export const discordId = z.string().regex(/^\d{17,20}$/);
 export const meetingId = z.string().regex(/^[a-f0-9]{24}$/);
 export const slotLength = 30 * 60 * 1000;
+export const bookingNotice = 2 * 60 * 60 * 1000;
+export const minimumAvailabilitySlots = 3;
+export function futureAvailabilitySlots(slots: number[], windowStart: number, windowEnd: number, now: number) {
+  const earliest = Math.max(windowStart, now + bookingNotice);
+  return Array.from(new Set(slots)).filter((slot) => Number.isSafeInteger(slot) && slot >= earliest && slot < windowEnd && slot % slotLength === 0);
+}
 export const maxAutomaticRetries = 15;
 const message = z.object({ channelId: discordId, messageId: discordId, buttonVersion: z.literal(1).optional(), purposeVersion: z.literal(1).optional() }).strict();
 export const meetingStateSchema = z.object({
@@ -54,7 +60,7 @@ export function matchingSlot(state: MeetingState, now = Date.now(), busy: BusyMe
   const available = (userId: string, slot: number) => !busy.some((meeting) => meeting.attendeeIds.includes(userId)
     && slot < meeting.scheduledAt + slotLength && meeting.scheduledAt < slot + slotLength);
   for (const slot of Array.from(new Set(applicant.slots)).sort((a, b) => a - b)) {
-    if (slot < now + 2 * 60 * 60 * 1000 || !available(applicant.userId, slot)) continue;
+    if (slot < now + bookingNotice || !available(applicant.userId, slot)) continue;
     const attending = managers.filter((row) => row.slots.includes(slot) && available(row.userId, slot));
     if (attending.length >= required) return { at: slot, attendeeIds: [applicant.userId, ...attending.map((row) => row.userId)] };
   }

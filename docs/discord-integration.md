@@ -90,6 +90,13 @@ The bot selects managers through the same per-form/per-contact-category routing,
 then creates a durable, idempotent booking through `/api/bot/meetings`. Participants
 receive signed private `/meet/<id>` links. Availability POSTs validate the signature,
 participant, timezone, future 30-minute slots and the 14-day booking window.
+Past selections and slots inside the existing two-hour notice period are ignored.
+A positive availability response must retain at least three distinct future slots;
+duplicates do not count. An explicit No suitable times response still records
+unavailability, but stale-only input is rejected rather than becoming that response.
+The form updates its clock while open, counts only bookable selections and uses
+the server's returned filtered slots after saving. No migration or new environment
+variables are required.
 Managers see the applicant's proposed slots, but never other managers' calendars,
 emails or form answers. Manager invitations are sent after the applicant selects
 times, and include those proposed times using Discord's local-time display.

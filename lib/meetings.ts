@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { getDbPool } from "@/lib/db";
-import { matchingSlot, meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
+import { bookingNotice, futureAvailabilitySlots, matchingSlot, meetingStateSchema, minimumAvailabilitySlots, slotLength, type MeetingState } from "@/lib/meeting-contract";
 
 type MeetingRow = RowDataPacket & { id: string; revision: string; state: unknown; lease_token?: string };
 const parseState = (row: MeetingRow) => meetingStateSchema.parse(typeof row.state === "string" ? JSON.parse(row.state) : row.state);
@@ -196,15 +196,20 @@ export async function saveAvailability(id: string, userId: string, slots: number
     const { state } = current;
     const person = state.participants.find((row) => row.userId === userId);
     if (!person) return "missing";
-    if (["accepted", "rejected", "closed"].includes(state.workflowStatus) || state.status === "scheduled" || state.windowEnd <= Date.now()) return "closed";
-    if (slots.some((slot) => slot < Math.max(state.windowStart, Date.now() + 2 * 60 * 60 * 1000) || slot >= state.windowEnd || slot % slotLength !== 0)) return "invalid";
-    person.slots = Array.from(new Set(slots)); person.responded = true; person.timezone = timezone;
+    const now = Date.now();
+    if (["accepted", "rejected", "closed"].includes(state.workflowStatus) || state.status === "scheduled" || state.windowEnd <= now) return "closed";
+    const future = slots.filter((slot) => slot >= now + bookingNotice);
+    if (future.some((slot) => slot < state.windowStart || slot >= state.windowEnd || slot % slotLength !== 0)) return "invalid";
+    const selected = futureAvailabilitySlots(future, state.windowStart, state.windowEnd, now);
+    // An explicit empty response means unavailable; expired selections must not become that response.
+    if (slots.length > 0 && selected.length < minimumAvailabilitySlots) return "too_few";
+    person.slots = selected; person.responded = true; person.timezone = timezone;
     person.source = "meeting"; person.respondedAt = Date.now();
     state.lastAction = { actorId: userId, kind: "availability_submitted", at: Date.now() };
     state.status = "collecting"; state.completed = false;
     const [result] = await getDbPool().execute<ResultSetHeader>(`UPDATE discord_meetings SET state = ?, revision = ?, finished_at = NULL, next_attempt_at = NOW()
       WHERE id = ? AND revision = ?`, [JSON.stringify(state), randomUUID(), id, current.revision]);
-    if (result.affectedRows) return "saved";
+    if (result.affectedRows) return { status: "saved" as const, slots: selected, serverNow: Date.now() };
   }
   return "conflict";
 }

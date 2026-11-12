@@ -87,13 +87,58 @@ test("availability uses CAS, de-duplicates slots and never overwrites a frozen b
     if (conflict) { conflict = false; return [{ affectedRows: 0 }]; }
     return [{ affectedRows: 1 }];
   } });
-  assert.equal(await api.saveAvailability(value.id, id(2), [at, at], "Africa/Johannesburg"), "saved");
+  const selected = [at, at + contract.slotLength, at + 2 * contract.slotLength];
+  const result = await api.saveAvailability(value.id, id(2), [...selected, at], "Africa/Johannesburg");
+  assert.equal(result.status, "saved"); assert.deepEqual(result.slots, selected);
   assert.equal(queries.filter(([sql]) => sql.startsWith("UPDATE")).length, 2);
-  const saved = JSON.parse(queries.at(-1)[1][0]); assert.deepEqual(saved.participants[0].slots, [at]);
+  const saved = JSON.parse(queries.at(-1)[1][0]); assert.deepEqual(saved.participants[0].slots, selected);
   assert.match(queries.at(-1)[0], /WHERE id = \? AND revision = \?/);
   value.status = "scheduled"; assert.equal(await api.saveAvailability(value.id, id(2), [], "UTC"), "closed");
   value.status = "collecting"; assert.equal(await api.saveAvailability(value.id, id(99), [], "UTC"), "missing");
   assert.equal(await api.saveAvailability(value.id, id(2), [at + 1], "UTC"), "invalid");
+});
+
+test("availability ignores expired selections and persists only distinct future bookable slots", async () => {
+  const value = state(), writes = [];
+  value.windowStart = at - 2 * 86400000; value.windowEnd = value.windowStart + 14 * 86400000;
+  const selected = [at, at + contract.slotLength, at + 2 * contract.slotLength];
+  const api = storage({ execute: async (sql, params) => {
+    if (sql.startsWith("SELECT")) return [[{ id: value.id, revision: "current", state: value }]];
+    writes.push(params); return [{ affectedRows: 1 }];
+  } });
+  const tooSoon = Math.ceil((Date.now() + 3600000) / contract.slotLength) * contract.slotLength;
+  const result = await api.saveAvailability(value.id, id(2), [value.windowStart, value.windowStart + 1, tooSoon, ...selected, at], "UTC");
+  assert.equal(result.status, "saved"); assert.deepEqual(result.slots, selected);
+  assert.deepEqual(JSON.parse(writes[0][0]).participants[0].slots, selected);
+});
+
+test("positive availability requires three unique future slots; past-only input never becomes a decline", async () => {
+  const value = state(); let writes = 0;
+  value.windowStart = at - 2 * 86400000; value.windowEnd = value.windowStart + 14 * 86400000;
+  const api = storage({ execute: async (sql) => {
+    if (sql.startsWith("SELECT")) return [[{ id: value.id, revision: "current", state: value }]];
+    writes++; return [{ affectedRows: 1 }];
+  } });
+  for (const selected of [[value.windowStart], [at], [at, at + contract.slotLength], [at, at, at]]) {
+    assert.equal(await api.saveAvailability(value.id, id(2), selected, "UTC"), "too_few");
+  }
+  assert.equal(writes, 0);
+  assert.equal((await api.saveAvailability(value.id, id(2), [], "UTC")).status, "saved");
+  assert.equal(writes, 1);
+  assert.equal(await api.saveAvailability(value.id, id(2), [at, at + contract.slotLength, value.windowEnd], "UTC"), "invalid");
+  assert.equal(writes, 1);
+});
+
+test("CAS retries recalculate expiry and the three-slot minimum before writing again", async (t) => {
+  let now = at - contract.bookingNotice, writes = 0;
+  t.mock.method(Date, "now", () => now);
+  const value = state();
+  const api = storage({ execute: async (sql) => {
+    if (sql.startsWith("SELECT")) return [[{ id: value.id, revision: "current", state: value }]];
+    writes++; now++; return [{ affectedRows: 0 }];
+  } });
+  assert.equal(await api.saveAvailability(value.id, id(2), [at, at + contract.slotLength, at + 2 * contract.slotLength], "UTC"), "too_few");
+  assert.equal(writes, 1);
 });
 test("job saves need revision and unexpired lease; ensure is idempotent and reads Discord from the original form", async () => {
   const queries = [];
@@ -183,8 +228,8 @@ test("bot meeting API authenticates before DB access and validates manager lists
 test("public availability verifies signatures and origin, bounds bodies and validates timezones", async () => {
   const helpers = load("lib/meeting-api.ts"); let writes = 0;
   const api = load("app/api/meetings/[id]/route.ts", { "@/lib/meeting-api": helpers, "@/lib/meeting-contract": contract,
-    "@/lib/meetings": { validParticipantToken: (_id, _user, token) => token === "a".repeat(64), saveAvailability: async () => { writes++; return "saved"; } } });
-  const body = { userId: id(2), token: "a".repeat(64), slots: [at], timezone: "Africa/Johannesburg" };
+    "@/lib/meetings": { validParticipantToken: (_id, _user, token) => token === "a".repeat(64), saveAvailability: async (_id, _user, slots) => { writes++; return { status: "saved", slots, serverNow: Date.now() }; } } });
+  const body = { userId: id(2), token: "a".repeat(64), slots: [at, at + contract.slotLength, at + 2 * contract.slotLength], timezone: "Africa/Johannesburg" };
   const context = { params: Promise.resolve({ id: state().id }) };
   const request = (value, origin = "https://xenon.example") => new Request(`https://xenon.example/api/meetings/${state().id}`, { method: "POST", headers: { Origin: origin }, body: JSON.stringify(value) });
   assert.equal((await api.POST(request(body, "https://evil.example"), context)).status, 403);
@@ -192,6 +237,27 @@ test("public availability verifies signatures and origin, bounds bodies and vali
   assert.equal((await api.POST(request({ ...body, timezone: "Invalid/Zone" }), context)).status, 403);
   assert.equal((await api.POST(request(body), context)).status, 200); assert.equal(writes, 1);
   await assert.rejects(helpers.readMeetingJson(new Request("https://xenon.example", { method: "POST", body: "x".repeat(40000) }), 32000), /too large/);
+});
+
+test("availability API accepts mixed stale/future choices and reports the minimum without a passed-time error", async () => {
+  const value = state(); value.windowStart = at - 2 * 86400000; value.windowEnd = value.windowStart + 14 * 86400000;
+  let saved;
+  const database = storage({ execute: async (sql, params) => {
+    if (sql.startsWith("SELECT")) return [[{ id: value.id, revision: "current", state: value }]];
+    saved = JSON.parse(params[0]); return [{ affectedRows: 1 }];
+  } });
+  const api = load("app/api/meetings/[id]/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract,
+    "@/lib/meetings": { ...database, validParticipantToken: () => true } });
+  const context = { params: Promise.resolve({ id: value.id }) };
+  const request = (slots) => new Request(`https://xenon.example/api/meetings/${value.id}`, { method: "POST", headers: { Origin: "https://xenon.example" },
+    body: JSON.stringify({ userId: id(2), token: "a".repeat(64), slots, timezone: "UTC" }) });
+  const future = [at, at + contract.slotLength, at + 2 * contract.slotLength];
+  const response = await api.POST(request([value.windowStart, ...future]), context);
+  assert.equal(response.status, 200); assert.deepEqual((await response.json()).slots, future);
+  assert.deepEqual(saved.participants[0].slots, future);
+  const insufficient = await api.POST(request([value.windowStart, at, at + contract.slotLength]), context);
+  assert.equal(insufficient.status, 400); const error = await insufficient.json();
+  assert.match(error.error, /at least 3 future times/); assert.doesNotMatch(error.error, /passed|refresh/i); assert.ok(error.serverNow);
 });
 
 test("private read responses share only this meeting's participants and times, without raw identity or delivery metadata", async () => {
@@ -213,7 +279,7 @@ test("booking reads and saves accept the public Hostinger origin behind an inter
   const api = load("app/api/meetings/[id]/route.ts", { "@/lib/meeting-api": helpers, "@/lib/meeting-contract": contract,
     "@/lib/meetings": { validParticipantToken: (_id, _user, token) => token === "a".repeat(64),
       getMeeting: async () => { reads++; return { state: value, serverNow: Date.now() }; },
-      saveAvailability: async () => { writes++; return "saved"; } } });
+      saveAvailability: async (_id, _user, slots) => { writes++; return { status: "saved", slots, serverNow: Date.now() }; } } });
   const context = { params: Promise.resolve({ id: value.id }) };
   const read = { action: "read", userId: id(2), token: "a".repeat(64) };
   const save = { userId: id(2), token: "a".repeat(64), slots: [at], timezone: "Africa/Johannesburg" };
