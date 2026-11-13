@@ -14,9 +14,8 @@ export function Hero() {
             XENON RETURNS <span className="text-ion">— JANUARY 2027</span>
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-steel sm:text-xl">
-            An esports organisation bringing competitive teams, creators and
-            community together. The return is being built in public, and there&apos;s
-            more than one way to be part of it.
+            Competitive teams, creators and community. Recruitment and interviews
+            are underway as we prepare December events and our January 2027 return.
           </p>
           <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <Button href="/join">Get involved</Button>
@@ -24,6 +23,7 @@ export function Hero() {
               Join Discord
             </Button>
           </div>
+          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm font-bold text-ion"><a href="/events/valorant/vote" className="inline-flex min-h-11 items-center hover:underline">December Valorant vote</a><a href="/events/valorant/pre-show" className="inline-flex min-h-11 items-center hover:underline">1v1 pre-show interest</a></div>
         </div>
         <div className="relative min-h-[24rem] overflow-hidden rounded-lg bg-black">
           <Image

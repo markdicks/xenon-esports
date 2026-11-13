@@ -4,6 +4,7 @@ import { Hero } from "@/components/home/Hero";
 import { Pillars } from "@/components/home/Pillars";
 import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
+import { CommunityProgress } from "@/components/home/CommunityProgress";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export default function Home() {
     <main className="xenon-shell min-h-screen">
       <Navbar />
       <Hero />
+      <CommunityProgress />
       <Pillars />
       <FollowTheRebuild />
       <CommunityCTA />

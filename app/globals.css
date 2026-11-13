@@ -112,3 +112,32 @@ body {
     opacity: 1;
   }
 }
+
+.community-home-row { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 24px 0; }
+.community-home-row > div { min-width: 0; }
+.community-home-row > a { flex: 0 0 auto; letter-spacing: 0; text-align: center; }
+.community-notice { border-left: 2px solid #4fffd8; padding: 14px 18px; margin-top: 16px; color: #aeb7c7; font-size: 14px; line-height: 1.8; }
+.community-text-action { min-height: 44px; color: #4fffd8; font-weight: 700; }
+.community-error { color: #fca5a5; font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.community-poll-option { display: flex; align-items: flex-start; gap: 14px; min-height: 132px; padding: 24px; border: 1px solid #ffffff26; border-radius: 6px; cursor: pointer; }
+.community-poll-option input { flex: 0 0 20px; width: 20px; height: 20px; margin-top: 2px; accent-color: #4fffd8; }
+.community-poll-option > span { min-width: 0; }
+.community-poll-option strong { display: block; color: white; font-size: 18px; line-height: 1.5; }
+.community-poll-option span > span { display: block; margin-top: 10px; color: #aeb7c7; font-size: 14px; line-height: 1.8; }
+.community-poll-option:has(input:checked) { border-color: #4fffd8; background: #4fffd80a; }
+.community-poll-option:has(input:focus-visible) { outline: 2px solid #4fffd8; outline-offset: 4px; }
+fieldset:disabled .community-poll-option { cursor: default; opacity: .65; }
+.community-submit { display: inline-flex; justify-content: center; align-items: center; min-height: 48px; min-width: 190px; padding: 12px 22px; border-radius: 5px; background: #d8ff3d; color: #090a0f; font-size: 14px; font-weight: 800; text-transform: uppercase; }
+.community-submit:hover { background: #4fffd8; }
+.community-submit:disabled { opacity: .45; cursor: default; }
+.community-submit:focus-visible { outline: 2px solid #4fffd8; outline-offset: 4px; }
+.community-result-track { height: 8px; overflow: hidden; border-radius: 3px; background: #ffffff12; }
+.community-result-track > span { display: block; height: 100%; background: #4fffd8; transition: width 400ms ease; }
+@media (max-width: 640px) {
+  .community-home-row { align-items: stretch; flex-direction: column; gap: 16px; }
+  .community-home-row > a { align-self: flex-start; }
+  .community-poll-option { padding: 20px; min-height: 128px; }
+  .community-submit { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .community-result-track > span { transition: none; } }
+.community-event-details { min-width: 0; overflow-wrap: anywhere; }

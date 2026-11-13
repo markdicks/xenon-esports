@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://xenonesports.online"),
   title: "Xenon Esports — January 2027",
   description:
     "Xenon Esports is actively building toward its January 2027 return through competitive teams, creators, content and community.",
