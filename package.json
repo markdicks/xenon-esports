@@ -11,10 +11,10 @@
   "dependencies": {
     "clsx": "2.1.1",
     "mysql2": "^3.23.3",
-    "next": "^16.4.1",
+    "next": "^16.4.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "20.14.10",
