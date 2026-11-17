@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export function Footer() {
   return (
     <footer className="border-t border-white/10 px-5 py-8 sm:px-8">
@@ -9,6 +11,7 @@ export function Footer() {
         <nav aria-label="More Xenon pages" className="flex flex-wrap gap-x-5 gap-y-2">
           <a className="transition hover:text-white" href="/leadership">Leadership</a>
           <a className="transition hover:text-white" href="/roadmap">Roadmap</a>
+          <Link className="transition hover:text-white" href="/collaborations">Collaborations</Link>
           <a className="transition hover:text-white" href="/contact">Contact</a>
         </nav>
       </div>
