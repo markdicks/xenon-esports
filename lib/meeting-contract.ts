@@ -5,6 +5,21 @@ export const meetingId = z.string().regex(/^[a-f0-9]{24}$/);
 export const slotLength = 30 * 60 * 1000;
 export const bookingNotice = 2 * 60 * 60 * 1000;
 export const minimumAvailabilitySlots = 3;
+export const minimumAvailabilityDays = 2;
+export const hour = 60 * 60 * 1000;
+export function availabilityDayCount(slots: number[], timezone: string) {
+  const date = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, dateStyle: "short" });
+  return new Set(slots.map((slot) => date.format(slot))).size;
+}
+export function followupWindowStart(scheduledAt: number, timezone: string, now: number) {
+  let date: Intl.DateTimeFormat;
+  try { date = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, dateStyle: "short" }); }
+  catch { date = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", dateStyle: "short" }); }
+  let start = Math.ceil(Math.max(scheduledAt + slotLength, now + bookingNotice) / slotLength) * slotLength;
+  const previousDay = date.format(scheduledAt);
+  while (date.format(start) === previousDay) start += slotLength;
+  return start;
+}
 export function futureAvailabilitySlots(slots: number[], windowStart: number, windowEnd: number, now: number) {
   const earliest = Math.max(windowStart, now + bookingNotice);
   return Array.from(new Set(slots)).filter((slot) => Number.isSafeInteger(slot) && slot >= earliest && slot < windowEnd && slot % slotLength === 0);
@@ -17,7 +32,10 @@ export const meetingStateSchema = z.object({
   guildId: discordId,
   roundNumber: z.number().int().min(1).max(100).default(1),
   parentMeetingId: meetingId.optional(),
-  departments: z.array(z.enum(["content", "operations", "competitive", "creators", "community", "staff"])).max(6).default([]),
+  departments: z.array(z.enum(["content", "operations", "competitive", "creators", "community", "staff", "founder"])).max(7).default([]),
+  reuseAvailability: z.literal(true).optional(),
+  submissionTopics: z.array(z.string().max(160)).max(15).optional(),
+  attentionSince: z.number().int().positive().optional(), attentionNotifiedAt: z.number().int().positive().optional(),
   applicantDiscord: z.string().min(1).max(120),
   applicantId: discordId.nullable(),
   windowStart: z.number().int().positive(), windowEnd: z.number().int().positive(),
@@ -30,6 +48,8 @@ export const meetingStateSchema = z.object({
     timezone: z.string().max(100).default("UTC"),
     displayName: z.string().max(120).optional(), source: z.enum(["meeting", "standing"]).default("meeting"),
     sendCount: z.number().int().min(0).default(0), lastSentAt: z.number().int().optional(), respondedAt: z.number().int().optional(),
+    availabilityRequestedAt: z.number().int().positive().optional(), reminderSentAt: z.number().int().positive().optional(), reminderFailedAt: z.number().int().positive().optional(),
+    availabilityWaivedAt: z.number().int().positive().optional(), waiverDmAt: z.number().int().positive().optional(), waiverStaffAt: z.number().int().positive().optional(),
     resendGeneration: z.number().int().min(0).default(0), resendRequested: z.boolean().default(false),
     deliveryFailure: z.object({ stage: z.enum(["invitation", "outcome"]), at: z.number().int().positive() }).strict().optional(),
     invitation: message.optional(), failureNotice: message.optional(), outcome: message.optional(), noMatchNotice: message.optional(),
@@ -55,10 +75,13 @@ export const meetingStateSchema = z.object({
 export type MeetingState = z.infer<typeof meetingStateSchema>;
 
 export type BusyMeeting = { scheduledAt: number; attendeeIds: string[] };
+export function readyToMatch(state: MeetingState) {
+  return Boolean(state.applicantId) && state.participants.every((person) => person.responded || (person.kind === "manager" && person.availabilityWaivedAt));
+}
 export function matchingSlot(state: MeetingState, now = Date.now(), busy: BusyMeeting[] = []) {
   const applicant = state.participants.find((row) => row.kind === "applicant");
-  const managers = state.participants.filter((row) => row.kind === "manager");
-  if (!applicant?.responded || !managers.length || managers.some((row) => !row.responded)) return null;
+  const managers = state.participants.filter((row) => row.kind === "manager" && !row.availabilityWaivedAt);
+  if (!applicant?.responded || !readyToMatch(state) || !managers.length) return null;
   const required = Math.ceil(managers.length * 2 / 3);
   const available = (userId: string, slot: number) => !busy.some((meeting) => meeting.attendeeIds.includes(userId)
     && slot < meeting.scheduledAt + slotLength && meeting.scheduledAt < slot + slotLength);
@@ -72,10 +95,10 @@ export function matchingSlot(state: MeetingState, now = Date.now(), busy: BusyMe
 
 export function meetingFollowUp(state: MeetingState, submittedAt: number, now = Date.now()) {
   const waitingForApplicant = !state.applicantId || !state.participants.some((person) => person.kind === "applicant" && person.responded);
-  const waitingForManagers = state.participants.filter((person) => person.kind === "manager" && !person.responded).length;
+  const waitingForManagers = state.participants.filter((person) => person.kind === "manager" && !person.responded && !person.availabilityWaivedAt).length;
   const waiting = waitingForApplicant || waitingForManagers > 0;
   const active = state.status !== "scheduled" && !["closed", "rejected", "accepted"].includes(state.workflowStatus);
-  const ageDays = Math.max(0, Math.floor((now - submittedAt) / (24 * 60 * 60 * 1000)));
+  const ageDays = Math.max(0, Math.floor((now - (state.attentionSince ?? submittedAt)) / (24 * hour)));
   const overdueWeeks = active && waiting ? (ageDays >= 28 ? 4 : ageDays >= 14 ? 2 : ageDays >= 7 ? 1 : null) : null;
   const availabilityMismatch = active && !waiting && (state.status === "no_match"
     || (state.status === "collecting" && state.windowEnd > now && matchingSlot(state, now) === null));

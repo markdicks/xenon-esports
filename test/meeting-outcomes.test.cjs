@@ -164,6 +164,18 @@ test("a follow-up creates one linked round without replacing the original meetin
   assert.equal(child.status, "pending"); assert.equal(child.channelId, null); assert.equal(child.windowEnd - child.windowStart, 14 * 86400000);
   assert.equal(f.data().meetings.get(meetingId).state.channelId, id(10));
 });
+test("a follow-up carries only future saved times on later days for its actual participants", async () => {
+  const f = fixture(); await f.review();
+  const parent = f.data().meetings.get(meetingId).state;
+  const sameDay = contract.followupWindowStart(parent.scheduledAt, "UTC", Date.now() - 86400000) - contract.slotLength;
+  const later = contract.followupWindowStart(parent.scheduledAt, "UTC", Date.now()) + contract.slotLength;
+  for (const person of parent.participants) person.slots = [sameDay, later].filter((slot) => slot >= parent.windowStart && slot < parent.windowEnd);
+  const result = await f.api.createFollowupMeeting({ id: meetingId, guildId: id(1), actorId: id(3), departments: ["founder"], managerIds: [id(3), id(4)], privateNotes: "" });
+  const child = f.data().meetings.get(result.outcome.followupId).state;
+  assert.equal(child.reuseAvailability, true);
+  assert.deepEqual(child.departments, ["founder"]);
+  assert.deepEqual(child.participants.map((person) => [person.userId, person.slots, person.responded]), [[id(3), [later], true], [id(4), [], false], [id(2), [later], true]]);
+});
 test("outcome mutations and their history roll back together", async () => {
   const f = fixture({ failAudit: true });
   await assert.rejects(f.review(), /audit unavailable/);

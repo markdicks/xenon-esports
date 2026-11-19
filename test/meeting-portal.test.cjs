@@ -146,6 +146,32 @@ test("closing, resending and reopening use authorized CAS writes and preserve ex
   assert.equal(saved.participants[0].invitation, undefined); assert.equal(saved.participants[1].responded, false);
 });
 
+test("attention re-asks only outstanding replies and adding staff preserves prior responses", async () => {
+  const current = meetingFixture(), writes = [], at = Math.ceil((Date.now() + 86400000) / contract.slotLength) * contract.slotLength;
+  Object.assign(current.state, { windowStart: at, windowEnd: at + 14 * 86400000 });
+  Object.assign(current.state.participants[0], { responded: true, slots: [at, at + contract.slotLength, at + 86400000] });
+  Object.assign(current.state.participants[1], { responded: false, slots: [], availabilityWaivedAt: Date.now(), reminderSentAt: Date.now() });
+  const api = portal({ execute: async (sql, params) => {
+    if (sql.startsWith("UPDATE")) { writes.push(params); return [{ affectedRows: 1 }]; }
+    if (sql.includes("AS source")) return [[{ type: "interest", subject: null, created_at: new Date() }]];
+    return [[]];
+  } }, current);
+  const ids = [id(2), id(3), id(4), id(4)];
+  assert.equal(await api.portalAddManagers(current.state.id, id(1), ["contact-media"], id(3), current.revision, ids), "missing");
+  assert.equal(await api.portalAddManagers(current.state.id, id(1), ["interest"], id(3), "stale", ids), "conflict");
+  assert.equal(await api.portalAddManagers(current.state.id, id(1), ["interest"], id(3), current.revision, ids), "saved");
+  const added = JSON.parse(writes.at(-1)[0]);
+  assert.deepEqual(added.participants.map((person) => person.userId), [id(2), id(3), id(4)]);
+  assert.equal(added.participants[0].responded, true);
+  assert.equal(await api.portalMutate(current.state.id, id(1), ["interest"], id(3), current.revision, "reask"), "saved");
+  const reasked = JSON.parse(writes.at(-1)[0]);
+  assert.equal(reasked.participants[0].responded, true);
+  assert.equal(reasked.participants[1].resendRequested, true);
+  assert.equal(reasked.participants[1].availabilityWaivedAt, undefined);
+  assert.equal(reasked.participants[1].reminderSentAt, undefined);
+  assert.ok(reasked.attentionSince);
+});
+
 test("Discord corrections update the submission and reset the meeting atomically without clearing its lease", async () => {
   const current = meetingFixture(), writes = []; let commits = 0, rollbacks = 0, releases = 0;
   const connection = { beginTransaction: async () => {}, execute: async (sql, params) => { writes.push([sql, params]); return [{ affectedRows: 1 }]; },

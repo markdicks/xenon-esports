@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
-import { discordId, meetingId, minimumAvailabilitySlots } from "@/lib/meeting-contract";
+import { discordId, meetingId, minimumAvailabilityDays, minimumAvailabilitySlots } from "@/lib/meeting-contract";
 import { getMeeting, saveAvailability, validParticipantToken } from "@/lib/meetings";
 export const runtime = "nodejs";
 const credentials = z.object({ userId: discordId, token: z.string().regex(/^[a-f0-9]{64}$/) });
@@ -37,12 +37,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         scheduledAt: state.scheduledAt, reference: state.reference, attending: state.status === "scheduled" ? state.attendeeIds.includes(person.userId) : undefined,
         sharedParticipants: state.participants.map((row, index) => ({ key: row.kind === "applicant" ? "applicant" : `manager-${index}`,
           name: row.displayName || (row.kind === "applicant" ? "Applicant" : `Manager ${index + 1}`), own: row.userId === person.userId,
-          responded: row.responded, source: row.source, slots: row.slots })),
+          responded: row.responded, source: row.source, waived: Boolean(row.availabilityWaivedAt), slots: row.slots })),
         channelUrl: state.channelId && state.attendeeIds.includes(person.userId) ? `https://discord.com/channels/${state.guildId}/${state.channelId}` : null } });
     }
     const result = await saveAvailability(id, body.data.userId, body.data.slots, body.data.timezone);
     if (typeof result !== "string") return json({ success: true, slots: result.slots, serverNow: result.serverNow });
-    const errors = { missing: "Invitation not found", closed: "This meeting is booked or the invitation has expired", invalid: "Choose valid 30-minute times within this meeting's availability window", too_few: `Select at least ${minimumAvailabilitySlots} future times, at least two hours from now`, conflict: "Availability changed while saving. Please try again" };
-    return json({ error: errors[result], serverNow: Date.now() }, result === "missing" ? 404 : result === "invalid" || result === "too_few" ? 400 : 409);
+    const errors = { missing: "Invitation not found", closed: "This meeting is booked or the invitation has expired", invalid: "Choose valid 30-minute times within this meeting's availability window", too_few: `Select at least ${minimumAvailabilitySlots} future times, at least two hours from now`, too_few_days: `Choose times on at least ${minimumAvailabilityDays} different days in your timezone`, conflict: "Availability changed while saving. Please try again" };
+    return json({ error: errors[result], serverNow: Date.now() }, result === "missing" ? 404 : ["invalid", "too_few", "too_few_days"].includes(result) ? 400 : 409);
   } catch (error) { console.error("Could not save meeting availability", error); return json({ error: "Availability could not be saved. Please try again shortly" }, 503); }
 }

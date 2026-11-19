@@ -87,7 +87,7 @@ test("availability uses CAS, de-duplicates slots and never overwrites a frozen b
     if (conflict) { conflict = false; return [{ affectedRows: 0 }]; }
     return [{ affectedRows: 1 }];
   } });
-  const selected = [at, at + contract.slotLength, at + 2 * contract.slotLength];
+  const selected = [at, at + contract.slotLength, at + 86400000];
   const result = await api.saveAvailability(value.id, id(2), [...selected, at], "Africa/Johannesburg");
   assert.equal(result.status, "saved"); assert.deepEqual(result.slots, selected);
   assert.equal(queries.filter(([sql]) => sql.startsWith("UPDATE")).length, 2);
@@ -101,7 +101,7 @@ test("availability uses CAS, de-duplicates slots and never overwrites a frozen b
 test("availability ignores expired selections and persists only distinct future bookable slots", async () => {
   const value = state(), writes = [];
   value.windowStart = at - 2 * 86400000; value.windowEnd = value.windowStart + 14 * 86400000;
-  const selected = [at, at + contract.slotLength, at + 2 * contract.slotLength];
+  const selected = [at, at + contract.slotLength, at + 86400000];
   const api = storage({ execute: async (sql, params) => {
     if (sql.startsWith("SELECT")) return [[{ id: value.id, revision: "current", state: value }]];
     writes.push(params); return [{ affectedRows: 1 }];
@@ -137,8 +137,62 @@ test("CAS retries recalculate expiry and the three-slot minimum before writing a
     if (sql.startsWith("SELECT")) return [[{ id: value.id, revision: "current", state: value }]];
     writes++; now++; return [{ affectedRows: 0 }];
   } });
-  assert.equal(await api.saveAvailability(value.id, id(2), [at, at + contract.slotLength, at + 2 * contract.slotLength], "UTC"), "too_few");
+  assert.equal(await api.saveAvailability(value.id, id(2), [at, at + contract.slotLength, at + 86400000], "UTC"), "too_few");
   assert.equal(writes, 1);
+});
+test("availability needs two days in the participant's timezone, not two UTC dates", async (t) => {
+  const midnight = Date.parse("2027-01-17T00:00:00Z"), value = state();
+  t.mock.method(Date, "now", () => midnight - 86400000);
+  value.windowStart = midnight - 12 * contract.hour; value.windowEnd = value.windowStart + 14 * 86400000;
+  for (const person of value.participants) person.slots = [];
+  const slots = [midnight - contract.slotLength, midnight, midnight + contract.slotLength];
+  let writes = 0;
+  const api = storage({ execute: async (sql) => sql.startsWith("SELECT") ? [[{ state: value, revision: "current" }]] : [{ affectedRows: ++writes }] });
+  assert.equal(await api.saveAvailability(value.id, id(2), slots, "Africa/Johannesburg"), "too_few_days");
+  assert.equal(writes, 0);
+  assert.equal((await api.saveAvailability(value.id, id(2), slots, "UTC")).status, "saved");
+});
+test("a timed-out manager leaves the quorum; booking still needs a responding staff member", () => {
+  const value = state(), managers = value.participants.filter((person) => person.kind === "manager");
+  value.participants[0].responded = true; value.participants[0].slots = [at];
+  for (const manager of managers) { manager.responded = false; manager.slots = []; }
+  managers[0].responded = true; managers[0].slots = [at];
+  assert.equal(contract.matchingSlot(value), null);
+  for (const manager of managers.slice(1)) manager.availabilityWaivedAt = Date.now();
+  assert.deepEqual(contract.matchingSlot(value).attendeeIds, [value.applicantId, managers[0].userId]);
+  managers[0].availabilityWaivedAt = Date.now(); assert.equal(contract.matchingSlot(value), null);
+});
+test("follow-up starts after the parent meeting's local day, not after UTC midnight", () => {
+  const parent = Date.parse("2027-01-17T19:00:00Z");
+  assert.equal(contract.followupWindowStart(parent, "Africa/Johannesburg", parent), Date.parse("2027-01-17T22:00:00Z"));
+});
+test("weekly attention includes expired and paused meetings, omits personal data, and acknowledges by revision", async () => {
+  const value = state(), queries = [];
+  value.status = "expired"; value.retryPaused = true;
+  const api = storage({ execute: async (sql, args) => { queries.push([sql, args]); return sql.startsWith("SELECT") ? [[{ id: value.id, revision: "current", state: value }]] : [{ affectedRows: 1 }]; } });
+  const [item] = await api.listMeetingAttention(value.guildId);
+  assert.match(item.reason, /expired/);
+  assert.deepEqual(Object.keys(item).sort(), ["cycle", "id", "reason", "reference", "revision"]);
+  assert.match(queries[0][0], /INTERVAL 7 DAY/); assert.doesNotMatch(queries[0][0], /finished_at|leased_until/);
+  assert.equal(await api.acknowledgeMeetingAttention(value.id, value.guildId, item.revision), true);
+  assert.match(queries[1][0], /guild_id = \? AND revision = \?/);
+});
+test("an outstanding legacy one-day applicant response is re-requested without touching booked meetings", async () => {
+  const value = state();
+  Object.assign(value.participants[0], { slots: [at], responded: true });
+  const api = storage({ execute: async (sql) => {
+    if (sql.includes("AS topic")) return [[{ topic: '["Streaming","Content creation"]' }]];
+    return sql.startsWith("SELECT") ? [[{ id: value.id, revision: "stored", state: value }]] : [{ affectedRows: 1 }];
+  } });
+  const [pending] = await api.claimMeetings(value.guildId);
+  assert.equal(pending.state.participants[0].responded, false);
+  assert.equal(pending.state.participants[0].resendRequested, true);
+  assert.deepEqual(pending.state.participants[0].slots, [at]);
+  assert.deepEqual(pending.state.submissionTopics, ["Streaming", "Content creation"]);
+  value.status = "scheduled";
+  const [booked] = await api.claimMeetings(value.guildId);
+  assert.equal(booked.state.participants[0].responded, true);
+  assert.equal(booked.state.participants[0].resendRequested, false);
 });
 test("job saves need revision and unexpired lease; ensure is idempotent and reads Discord from the original form", async () => {
   const queries = [];
@@ -251,7 +305,7 @@ test("availability API accepts mixed stale/future choices and reports the minimu
   const context = { params: Promise.resolve({ id: value.id }) };
   const request = (slots) => new Request(`https://xenon.example/api/meetings/${value.id}`, { method: "POST", headers: { Origin: "https://xenon.example" },
     body: JSON.stringify({ userId: id(2), token: "a".repeat(64), slots, timezone: "UTC" }) });
-  const future = [at, at + contract.slotLength, at + 2 * contract.slotLength];
+  const future = [at, at + contract.slotLength, at + 86400000];
   const response = await api.POST(request([value.windowStart, ...future]), context);
   assert.equal(response.status, 200); assert.deepEqual((await response.json()).slots, future);
   assert.deepEqual(saved.participants[0].slots, future);
@@ -317,7 +371,7 @@ test("paused invitations are excluded from automatic claims unless one manual re
     return sql.startsWith("SELECT") ? [[{ id: value.id, revision: "stored", state: value }]] : [{ affectedRows: 1 }];
   } });
   assert.equal((await api.claimMeetings(id(1))).length, 1);
-  for (const [sql] of queries) {
+  for (const [sql] of queries.filter(([sql]) => sql.includes("discord_meetings"))) {
     assert.match(sql, /JSON_EXTRACT\(state, '\$\.retryPaused'\)/);
     assert.match(sql, /JSON_EXTRACT\(state, '\$\.manualRetryRequested'\)/);
   }

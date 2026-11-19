@@ -2,14 +2,15 @@ import { z } from "zod";
 import { authorizeBot, meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
 import { discordId, meetingId } from "@/lib/meeting-contract";
 import { departmentKeys } from "@/lib/meeting-outcome-contract";
-import { getStaffProfile, portalCorrectDiscord, portalDetail, portalFailure, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
+import { getStaffProfile, portalAddManagers, portalCorrectDiscord, portalDetail, portalFailure, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(routeKeys.length), allowedDepartments: z.array(z.enum(departmentKeys)).max(6).default([]) };
+const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(routeKeys.length), allowedDepartments: z.array(z.enum(departmentKeys)).max(departmentKeys.length).default([]) };
 const schema = z.discriminatedUnion("action", [
   z.object({ ...context, action: z.literal("list"), before: meetingId.nullable().default(null), status: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).nullable().default(null), search: z.string().max(120).default("") }).strict(),
   z.object({ ...context, action: z.literal("detail"), id: meetingId, historyBefore: z.number().int().positive().nullable().default(null) }).strict(),
-  z.object({ ...context, action: z.literal("mutate"), id: meetingId, revision: z.string().uuid(), operation: z.enum(["status", "resend", "reopen", "discord-username"]), value: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).optional(), discordUsername: z.string().trim().min(1).max(120).optional() }).strict(),
+  z.object({ ...context, action: z.literal("mutate"), id: meetingId, revision: z.string().uuid(), operation: z.enum(["status", "resend", "reopen", "reask", "discord-username"]), value: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).optional(), discordUsername: z.string().trim().min(1).max(120).optional() }).strict(),
+  z.object({ ...context, action: z.literal("add-managers"), id: meetingId, revision: z.string().uuid(), managerIds: z.array(discordId).min(1).max(5) }).strict(),
   z.object({ ...context, action: z.literal("profile") }).strict(),
   z.object({ ...context, action: z.literal("save-profile"), profile: profileSchema }).strict(),
 ]);
@@ -30,6 +31,10 @@ export async function POST(request: Request) {
     if (input.action === "save-profile") {
       if (!input.allowedRoutes.length && !input.allowedDepartments.length && input.profile.enabled) return json({ error: "A notification or department role is required to save staff availability" }, 403);
       await saveStaffProfile(input.guildId, input.actorId, input.profile); return json({ success: true });
+    }
+    if (input.action === "add-managers") {
+      const result = await portalAddManagers(input.id, input.guildId, input.allowedRoutes, input.actorId, input.revision, input.managerIds, access);
+      return result === "saved" ? json({ success: true }) : json({ error: `Submission ${result}. Reload before changing staff.` }, result === "missing" ? 404 : 409);
     }
     if (input.operation === "status" && !input.value) return json({ error: "Choose a status" }, 400);
     if (input.operation === "discord-username" && !input.discordUsername) return json({ error: "Enter a Discord username or user ID" }, 400);

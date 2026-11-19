@@ -77,7 +77,7 @@ export async function saveStaffProfile(guildId: string, userId: string, profile:
   } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
 }
 export async function applyStandingAvailability(state: MeetingState) {
-  const people = state.participants.filter((row) => row.kind === "manager" && (!row.responded || row.source === "standing"));
+  const people = state.participants.filter((row) => row.kind === "manager" && !row.availabilityWaivedAt && (!row.responded || row.source === "standing"));
   if (!people.length) return;
   let profiles: RowDataPacket[];
   try { [profiles] = await getDbPool().execute<RowDataPacket[]>(`SELECT user_id, timezone, weekly_slots FROM discord_staff_availability
@@ -176,20 +176,48 @@ export async function portalMutate(id: string, guildId: string, allowed: string[
     if (state.status === "scheduled" && !["accepted", "closed", "rejected"].includes(value || "")) return "scheduled";
     state.workflowStatus = value as MeetingState["workflowStatus"];
     if (["accepted", "closed", "rejected"].includes(state.workflowStatus)) { state.completed = true; state.manualRetryRequested = false; }
-  } else if (action === "resend" || action === "reopen") {
+  } else if (action === "resend" || action === "reopen" || action === "reask") {
     if (state.status === "scheduled") return "scheduled";
     if (["accepted", "closed", "rejected"].includes(state.workflowStatus) && action !== "reopen") return "closed";
-    if (action === "reopen" || state.windowEnd <= Date.now()) {
-      state.windowStart = Math.ceil((Date.now() + 7200000) / slotLength) * slotLength; state.windowEnd = state.windowStart + 14 * 86400000;
+    const now = Date.now(), freshWindow = action === "reopen" || state.windowEnd <= now;
+    if (freshWindow) {
+      state.windowStart = Math.max(state.windowStart, Math.ceil((now + 7200000) / slotLength) * slotLength); state.windowEnd = state.windowStart + 14 * 86400000;
       for (const person of state.participants) { person.slots = []; person.responded = false; person.source = "meeting"; delete person.invitation; person.resendGeneration++; }
     }
     const applicant = state.participants.find((person) => person.kind === "applicant");
-    if (applicant) { applicant.resendRequested = true; applicant.resendGeneration++; applicant.responded = false; }
-    state.workflowStatus = "reviewing"; state.status = "pending"; state.completed = false; state.manualRetryRequested = true;
+    const ask = action === "reask" ? state.participants.filter((person) => freshWindow || !person.responded || state.status === "no_match" || !person.slots.some((slot) => slot >= now + 7200000)) : [applicant].filter((person) => person != null);
+    for (const person of ask) { person.resendRequested = true; person.resendGeneration++; person.responded = false; }
+    for (const person of state.participants) if (freshWindow || ask.includes(person)) {
+      delete person.availabilityRequestedAt; delete person.reminderSentAt; delete person.reminderFailedAt; delete person.availabilityWaivedAt;
+      delete person.waiverDmAt; delete person.waiverStaffAt; delete person.noMatchNotice; delete person.outcome;
+    }
+    delete state.reuseAvailability;
+    state.attentionSince = now; delete state.attentionNotifiedAt;
+    state.workflowStatus = "reviewing"; state.status = action === "reask" && applicant?.responded ? "collecting" : "pending";
+    state.completed = false; state.manualRetryRequested = true;
   }
   state.lastAction = { actorId, kind: action === "status" ? `status:${value}` : action, at: Date.now() };
   const [result] = await getDbPool().execute<ResultSetHeader>(`UPDATE discord_meetings SET state = ?, revision = ?, finished_at = IF(?, NOW(), NULL), next_attempt_at = NOW()
     WHERE id = ? AND guild_id = ? AND revision = ?`, [JSON.stringify(state), randomUUID(), state.completed, id, guildId, revision]);
+  return result.affectedRows ? "saved" : "conflict";
+}
+export async function portalAddManagers(id: string, guildId: string, allowed: string[], actorId: string, revision: string, managerIds: string[], access?: PortalAccess) {
+  const current = await portalDetail(id, guildId, allowed, null, access);
+  if (!current) return "missing";
+  if (current.revision !== revision) return "conflict";
+  const state = current.state;
+  if (state.status === "scheduled" || state.windowEnd <= Date.now()) return "closed";
+  if (["accepted", "rejected", "closed"].includes(state.workflowStatus)) return "closed";
+  const ids = Array.from(new Set(managerIds)).filter((userId) => !state.participants.some((person) => person.userId === userId));
+  if (!ids.length) return "saved";
+  if (state.participants.length + ids.length + (state.applicantId ? 0 : 1) > 101) return "full";
+  state.participants.push(...ids.map((userId) => ({ userId, kind: "manager" as const, slots: [], responded: false, timezone: "UTC", source: "meeting" as const,
+    sendCount: 0, resendGeneration: 0, resendRequested: false })));
+  if (state.applicantId) state.status = "collecting";
+  state.completed = false;
+  state.lastAction = { actorId, kind: "managers_added", at: Date.now() };
+  const [result] = await getDbPool().execute<ResultSetHeader>(`UPDATE discord_meetings SET state = ?, revision = ?, finished_at = NULL, next_attempt_at = NOW()
+    WHERE id = ? AND guild_id = ? AND revision = ?`, [JSON.stringify(state), randomUUID(), id, guildId, revision]);
   return result.affectedRows ? "saved" : "conflict";
 }
 export async function portalCorrectDiscord(id: string, guildId: string, allowed: string[], actorId: string, revision: string, discordUsername: string, access?: PortalAccess) {
@@ -202,13 +230,15 @@ export async function portalCorrectDiscord(id: string, guildId: string, allowed:
   if (["accepted", "rejected", "closed"].includes(state.workflowStatus)) return "closed";
   state.applicantDiscord = username; state.applicantId = null;
   state.participants = state.participants.filter((person) => person.kind === "manager");
-  state.windowStart = Math.ceil((Date.now() + 7200000) / slotLength) * slotLength; state.windowEnd = state.windowStart + 14 * 86400000;
+  state.windowStart = Math.max(state.windowStart, Math.ceil((Date.now() + 7200000) / slotLength) * slotLength); state.windowEnd = state.windowStart + 14 * 86400000;
   for (const person of state.participants) {
     person.slots = []; person.responded = false; person.source = "meeting"; person.resendGeneration++;
     delete person.invitation; delete person.outcome; delete person.noMatchNotice; delete person.deliveryFailure;
+    delete person.availabilityRequestedAt; delete person.reminderSentAt; delete person.reminderFailedAt; delete person.availabilityWaivedAt; delete person.waiverDmAt; delete person.waiverStaffAt;
   }
   state.status = "pending"; state.workflowStatus = "reviewing"; state.failureReason = null;
   state.completed = false; state.manualRetryRequested = true;
+  delete state.reuseAvailability; delete state.attentionNotifiedAt; state.attentionSince = Date.now();
   state.lastAction = { actorId, kind: "discord_username_updated", at: Date.now() };
   const prefix = state.reference.split("-")[1], table = prefix === "APP" ? "applications" : prefix === "INT" ? "interest_submissions" : "contact_submissions";
   const column = prefix === "INT" ? "reference_code" : "public_reference";

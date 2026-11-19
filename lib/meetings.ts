@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { getDbPool } from "@/lib/db";
-import { bookingNotice, futureAvailabilitySlots, matchingSlot, meetingStateSchema, minimumAvailabilitySlots, slotLength, type MeetingState } from "@/lib/meeting-contract";
+import { availabilityDayCount, bookingNotice, futureAvailabilitySlots, matchingSlot, meetingStateSchema, minimumAvailabilityDays, minimumAvailabilitySlots, readyToMatch, slotLength, type MeetingState } from "@/lib/meeting-contract";
 
 type MeetingRow = RowDataPacket & { id: string; revision: string; state: unknown; lease_token?: string };
 const parseState = (row: MeetingRow) => meetingStateSchema.parse(typeof row.state === "string" ? JSON.parse(row.state) : row.state);
@@ -57,6 +57,21 @@ export async function claimMeetings(guildId: string) {
       if (!["accepted", "rejected", "closed"].includes(state.workflowStatus) && state.status !== "scheduled") {
         const { applyStandingAvailability } = await import("@/lib/meeting-portal");
         await applyStandingAvailability(state);
+        const applicant = state.participants.find((person) => person.kind === "applicant");
+        if (!state.parentMeetingId && !state.retryPaused && state.windowEnd > Date.now() && applicant?.responded && applicant.slots.length
+          && availabilityDayCount(applicant.slots, applicant.timezone) < minimumAvailabilityDays) {
+          applicant.responded = false; applicant.resendRequested = true; applicant.resendGeneration++;
+        }
+      }
+      if (state.applicantId && !state.announcementId && !state.submissionTopics && !["accepted", "rejected", "closed"].includes(state.workflowStatus)) {
+        const kind = state.reference.split("-")[1];
+        const query = kind === "INT" ? "SELECT interests AS topic FROM interest_submissions WHERE reference_code = ?"
+          : kind === "APP" ? "SELECT role AS topic FROM applications WHERE public_reference = ?" : "SELECT subject AS topic FROM contact_submissions WHERE public_reference = ?";
+        const [topics] = await pool.execute<RowDataPacket[]>(query, [state.reference]);
+        const raw = topics[0]?.topic;
+        let values: unknown = raw == null ? [] : [raw];
+        if (kind === "INT") { try { values = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { values = []; } }
+        state.submissionTopics = Array.isArray(values) ? values.filter((value): value is string => typeof value === "string").slice(0, 15).map((value) => value.trim().slice(0, 160)).filter(Boolean) : [];
       }
       jobs.push({ state, revision: row.revision, leaseToken });
     }
@@ -90,6 +105,30 @@ export async function listPausedMeetings(guildId: string) {
       attempts: state.attempts, automaticRetries: state.automaticRetries, failureReason: state.failureReason,
       queued: state.manualRetryRequested, expired: state.windowEnd <= Date.now() };
   });
+}
+const unresolved = `CONVERT(JSON_UNQUOTE(JSON_EXTRACT(state, '$.status')) USING utf8mb4) COLLATE utf8mb4_unicode_ci <> 'scheduled'
+  AND CONVERT(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.workflowStatus')), 'new') USING utf8mb4) COLLATE utf8mb4_unicode_ci NOT IN ('accepted','rejected','closed')`;
+export async function listMeetingAttention(guildId: string) {
+  const [rows] = await getDbPool().execute<MeetingRow[]>(`SELECT id, revision, state FROM discord_meetings
+    WHERE guild_id = ? AND created_at <= DATE_SUB(NOW(), INTERVAL 7 DAY) AND ${unresolved}
+    AND JSON_EXTRACT(state, '$.attentionNotifiedAt') IS NULL
+    AND COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(state, '$.attentionSince')) AS UNSIGNED), 0) <= ?
+    ORDER BY created_at, id LIMIT 5`, [guildId, Date.now() - 7 * 24 * 60 * 60 * 1000]);
+  return rows.map((row) => {
+    const state = parseState(row);
+    const reason = state.status === "expired" ? "The availability window expired without a booking."
+      : state.retryPaused || state.failureReason ? "An availability invitation needs delivery review."
+      : state.status === "no_match" || readyToMatch(state) ? "No shared meeting time has been booked."
+      : "One or more availability responses are outstanding.";
+    return { id: state.id, reference: state.reference, revision: row.revision, cycle: state.attentionSince ?? 0, reason };
+  });
+}
+export async function acknowledgeMeetingAttention(id: string, guildId: string, revision: string) {
+  const [result] = await getDbPool().execute<ResultSetHeader>(`UPDATE discord_meetings
+    SET state = JSON_SET(state, '$.attentionNotifiedAt', ?), revision = ?
+    WHERE id = ? AND guild_id = ? AND revision = ? AND ${unresolved} AND JSON_EXTRACT(state, '$.attentionNotifiedAt') IS NULL`,
+  [Date.now(), randomUUID(), id, guildId, revision]);
+  return Boolean(result.affectedRows);
 }
 export async function requestManualMeetingRetry(id: string, guildId: string) {
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -165,7 +204,7 @@ export async function bookMeetingJob(input: JobIdentity) {
     const state = current.state;
     if (["accepted", "rejected", "closed"].includes(state.workflowStatus) || state.windowEnd <= Date.now()) return null;
     if (state.status === "scheduled") return current;
-    if (!state.applicantId || !state.participants.every((person) => person.responded)) return null;
+    if (!readyToMatch(state)) return null;
     const match = matchingSlot(state, Date.now(), await busyMeetings(connection, state));
     if (match) {
       state.status = "scheduled"; state.workflowStatus = "meeting"; state.scheduledAt = match.at; state.attendeeIds = match.attendeeIds;
@@ -204,7 +243,9 @@ export async function saveAvailability(id: string, userId: string, slots: number
     const selected = futureAvailabilitySlots(future, state.windowStart, state.windowEnd, now);
     // An explicit empty response means unavailable; expired selections must not become that response.
     if (slots.length > 0 && selected.length < minimumAvailabilitySlots) return "too_few";
+    if (selected.length && availabilityDayCount(selected, timezone) < minimumAvailabilityDays) return "too_few_days";
     person.slots = selected; person.responded = true; person.timezone = timezone;
+    delete person.availabilityWaivedAt;
     person.source = "meeting"; person.respondedAt = Date.now();
     state.lastAction = { actorId: userId, kind: "availability_submitted", at: Date.now() };
     state.status = "collecting"; state.completed = false;

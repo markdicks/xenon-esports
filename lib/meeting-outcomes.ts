@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { getDbPool } from "@/lib/db";
-import { meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
+import { followupWindowStart, futureAvailabilitySlots, meetingStateSchema, type MeetingState } from "@/lib/meeting-contract";
 import { outcomeSchema, rolePolicySchema, type MeetingOutcome } from "@/lib/meeting-outcome-contract";
 import { selectedInterestRoutes } from "@/data/interest-routing";
 
@@ -221,11 +221,18 @@ export async function createFollowupMeeting(input: { id: string; guildId: string
     if (rounds[0]?.id !== meeting.id || rounds[0].round_number >= 100) fail("A newer meeting already exists for this submission.");
     const managerIds = Array.from(new Set(input.managerIds)).filter((id) => id !== meeting.applicantId);
     if (!managerIds.length) fail("The selected departments have no available managers.", 400);
-    const start = Math.ceil((Date.now() + 7200000) / slotLength) * slotLength;
+    const now = Date.now();
+    const priorApplicant = meeting.participants.find((person) => person.kind === "applicant")!;
+    const start = followupWindowStart(meeting.scheduledAt!, priorApplicant.timezone, now), end = start + 14 * 86400000;
+    const carry = (userId: string, kind: "applicant" | "manager") => {
+      const prior = meeting.participants.find((person) => person.userId === userId);
+      const slots = prior?.responded && !prior.availabilityWaivedAt ? futureAvailabilitySlots(prior.slots, start, end, now) : [];
+      return { userId, kind, slots, responded: slots.length > 0, timezone: prior?.timezone, source: prior?.source };
+    };
     const child = meetingStateSchema.parse({ ...meeting, id: randomBytes(12).toString("hex"), roundNumber: rounds[0].round_number + 1,
-      parentMeetingId: meeting.id, departments: input.departments, windowStart: start, windowEnd: start + 14 * 86400000,
-      participants: [...managerIds.map((userId) => ({ userId, kind: "manager", slots: [], responded: false })),
-        { userId: meeting.applicantId, kind: "applicant", slots: [], responded: false }],
+      parentMeetingId: meeting.id, departments: input.departments, windowStart: start, windowEnd: end,
+      reuseAvailability: true, attentionSince: now, attentionNotifiedAt: undefined,
+      participants: [...managerIds.map((userId) => carry(userId, "manager")), carry(meeting.applicantId!, "applicant")],
       status: "pending", workflowStatus: "new", attempts: 0, automaticRetries: 0, retryPaused: false, manualRetryRequested: false,
       failureReason: null, channelId: null, scheduledAt: null, attendeeIds: [], announcementId: null, completed: false,
       lastAction: { actorId: input.actorId, kind: "followup_created", at: Date.now() } });

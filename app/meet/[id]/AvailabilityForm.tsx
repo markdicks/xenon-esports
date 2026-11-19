@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { futureAvailabilitySlots, minimumAvailabilitySlots, slotLength } from "@/lib/meeting-contract";
+import { availabilityDayCount, futureAvailabilitySlots, minimumAvailabilityDays, minimumAvailabilitySlots, slotLength } from "@/lib/meeting-contract";
 
 export type AvailabilityFormProps = { id: string; userId: string; token: string; initialSlots: number[]; initialTimezone: string;
   windowStart: number; windowEnd: number; initialResponded: boolean; status: string; scheduledAt: number | null; channelUrl: string | null; serverNow: number; proposedSlots?: number[]; attending?: boolean;
-  sharedParticipants?: { key: string; name: string; own: boolean; responded: boolean; source?: string; slots: number[] }[] };
+  sharedParticipants?: { key: string; name: string; own: boolean; responded: boolean; source?: string; waived?: boolean; slots: number[] }[] };
 const subscribe = () => () => {};
 const control = "min-h-11 rounded-md border border-white/15 bg-black/30 px-4 py-2 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-ion disabled:opacity-40";
 export function AvailabilityForm(props: AvailabilityFormProps) {
@@ -28,6 +28,7 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
   }, [props.serverNow]);
   const now = Math.max(props.serverNow, clock);
   const selected = useMemo(() => futureAvailabilitySlots(Array.from(slots), props.windowStart, props.windowEnd, now), [slots, props.windowStart, props.windowEnd, now]);
+  const selectedDays = availabilityDayCount(selected, timezone);
   const timezones = useMemo(() => Array.from(new Set([timezone, "UTC", ...Intl.supportedValuesOf("timeZone")])).sort(), [timezone]);
   const days = useMemo(() => {
     const groups = new Map<string, number[]>();
@@ -56,6 +57,9 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
     if (values.length > 0 && future.length < minimumAvailabilitySlots) {
       setSlots(new Set(future)); setSaved(false); setError(`Select at least ${minimumAvailabilitySlots} future times, at least two hours from now`); return;
     }
+    if (future.length && availabilityDayCount(future, timezone) < minimumAvailabilityDays) {
+      setSlots(new Set(future)); setSaved(false); setError(`Choose times on at least ${minimumAvailabilityDays} different days in your timezone`); return;
+    }
     setBusy(true); setError("");
     try {
       const response = await fetch(`/api/meetings/${props.id}`, { method: "POST", headers: { "Content-Type": "application/json" },
@@ -71,25 +75,25 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
   }
   return <section className="mt-8 border-t border-white/15 pt-6">
     <p className="mb-5 text-sm text-steel">Availability is shared only with the people handling this submission.</p>
-    <ul className="mb-5 flex flex-wrap gap-3 text-xs text-steel">{props.sharedParticipants?.map((person) => <li key={person.key} className="border-b border-white/15 pb-2"><strong className={person.responded ? "text-ion" : "text-steel"}>{person.name}{person.own ? " (you)" : ""}</strong>: {person.responded ? person.source === "standing" ? "Weekly availability saved" : "Replied" : "Awaiting reply"}</li>)}</ul>
+    <ul className="mb-5 flex flex-wrap gap-3 text-xs text-steel">{props.sharedParticipants?.map((person) => <li key={person.key} className="border-b border-white/15 pb-2"><strong className={person.responded ? "text-ion" : "text-steel"}>{person.name}{person.own ? " (you)" : ""}</strong>: {person.waived ? "Not required after 48 hours" : person.responded ? person.source === "standing" ? "Weekly availability saved" : "Replied" : "Awaiting reply"}</li>)}</ul>
     <div className="mb-5 flex flex-wrap gap-4 text-xs"><span className="text-ion">Your selection</span><span className="text-purple-300">Others available</span><span className="text-lime-300">Shared selection</span></div>
     <label htmlFor="meeting-timezone" className="block text-sm font-semibold text-white">Timezone</label><select id="meeting-timezone" value={timezone} disabled={busy} onChange={(event) => { setTimezone(event.target.value); setDayIndex(0); setSaved(false); }} className={`${control} mt-2 w-full`}>
       {timezones.map((zone) => <option key={zone} value={zone}>{zone.replaceAll("_", " ")}</option>)}
     </select>
-    {saved && <p role="status" className="mt-5 text-sm leading-6 text-ion">Availability saved. Check Discord for the meeting confirmation once everyone has responded.</p>}
+    {saved && <p role="status" className="mt-5 text-sm leading-6 text-ion">Availability saved. Check Discord for confirmation once a matching time is found.</p>}
     {props.status === "no_match" && !saved && <p className="mt-5 text-sm text-steel">No matching time yet. You can update your availability.</p>}
     <div className="mt-6 flex flex-wrap items-center justify-between gap-3"><button className={control} disabled={busy || dayIndex === 0} onClick={() => setDayIndex(Math.max(0, dayIndex - 1))}>Previous day</button>
       <button className={control} disabled={busy || dayIndex >= days.length - 1} onClick={() => setDayIndex(Math.min(days.length - 1, dayIndex + 1))}>Next day</button></div>
     <fieldset disabled={busy} className="mt-5"><legend className="mb-4 text-base font-bold text-white">{day.length ? dateLabel(day[0]) : "No future slots"}<span className="mt-1 block text-xs font-normal text-steel">30-minute slots</span></legend>
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{day.map((at) => {
-        const others = props.sharedParticipants?.filter((person) => !person.own && person.responded && person.slots.includes(at)) || [];
+        const others = props.sharedParticipants?.filter((person) => !person.own && person.responded && !person.waived && person.slots.includes(at)) || [];
         return <label key={at} title={others.length ? `Available: ${others.map((person) => person.name).join(", ")}` : undefined} className={`flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-md border p-2 text-sm ${slots.has(at) ? others.length ? "border-lime-300 bg-lime-300/10 text-white" : "border-ion bg-ion/10 text-white" : others.length ? "border-purple-300/60 bg-purple-300/10 text-purple-200" : "border-white/15 text-steel"}`}>
         <input type="checkbox" checked={slots.has(at)} className="h-4 w-4 accent-cyan-300" onChange={() => { setSlots((old) => { const next = new Set(old); if (next.has(at)) next.delete(at); else next.add(at); return next; }); setSaved(false); }} />{timeLabel(at)}</label>;
       })}</div>
     </fieldset>
-    <p aria-live="polite" className="mt-4 text-sm text-steel">{selected.length} future times selected (minimum {minimumAvailabilitySlots})</p>
+    <p aria-live="polite" className="mt-4 text-sm text-steel">{selected.length} future times across {selectedDays} {selectedDays === 1 ? "day" : "days"}. Choose at least {minimumAvailabilitySlots} times across {minimumAvailabilityDays} days.</p>
     {error && <p role="alert" className="mt-4 text-sm text-volt">{error}</p>}
-    <div className="mt-6 flex flex-col gap-3 sm:flex-row"><button disabled={busy || selected.length < minimumAvailabilitySlots} onClick={() => save(Array.from(slots))} className={`${control} bg-ion/10 font-bold text-ion`}>{busy ? "Saving..." : "Save availability"}</button>
+    <div className="mt-6 flex flex-col gap-3 sm:flex-row"><button disabled={busy || selected.length < minimumAvailabilitySlots || selectedDays < minimumAvailabilityDays} onClick={() => save(Array.from(slots))} className={`${control} bg-ion/10 font-bold text-ion`}>{busy ? "Saving..." : "Save availability"}</button>
       <button disabled={busy} onClick={() => save([])} className={control}>No suitable times</button></div>
   </section>;
 }

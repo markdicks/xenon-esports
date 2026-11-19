@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { discordId, meetingId } from "@/lib/meeting-contract";
 
-export const departmentKeys = ["content", "operations", "competitive", "creators", "community", "staff"] as const;
+export const departmentKeys = ["content", "operations", "competitive", "creators", "community", "staff", "founder"] as const;
 export const rolePolicySchema = z.object({ roleIds: z.array(discordId).max(20).refine((ids) => new Set(ids).size === ids.length) }).strict();
 const receipt = z.object({ channelId: discordId, messageId: discordId }).strict();
 export const outcomeSchema = z.object({

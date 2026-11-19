@@ -28,7 +28,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("retry"), ...manager }).strict(),
   z.object({ action: z.literal("grant-claim"), ...identity, version }).strict(),
   z.object({ action: z.literal("grant-ack"), ...identity, version, leaseToken: z.string().uuid(), appliedRoleIds: z.array(discordId).max(10), failed: z.boolean() }).strict(),
-  z.object({ action: z.literal("followup"), ...manager, departments: z.array(z.enum(departmentKeys)).min(1).max(6),
+  z.object({ action: z.literal("followup"), ...manager, departments: z.array(z.enum(departmentKeys)).min(1).max(departmentKeys.length),
     managerIds: z.array(discordId).min(1).max(90), privateNotes: z.string().max(4000).default("") }).strict(),
 ]);
 export async function POST(request: Request) {
