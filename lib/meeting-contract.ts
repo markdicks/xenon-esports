@@ -27,15 +27,33 @@ export function futureAvailabilitySlots(slots: number[], windowStart: number, wi
 }
 export const maxAutomaticRetries = 15;
 const message = z.object({ channelId: discordId, messageId: discordId, buttonVersion: z.literal(1).optional(), purposeVersion: z.literal(1).optional() }).strict();
+const meetingDepartment = z.enum(["content", "operations", "competitive", "creators", "community", "staff", "founder"]);
+export const meetingRequestSchema = z.object({
+  requestId: z.string().uuid(), guildId: discordId, actorId: discordId,
+  requester: z.string().trim().min(1).max(120), topic: z.string().trim().min(1).max(160),
+  recipientType: z.enum(["department", "discord"]).default("department"), department: meetingDepartment.optional(),
+  managerIds: z.array(discordId).min(1).max(90),
+  delivery: z.object({ checkedAt: z.number().int().positive(), userIds: z.array(discordId).min(2).max(91) }).strict(),
+}).superRefine((input, ctx) => {
+  const recipients = new Set([input.actorId, ...input.managerIds]), checked = new Set(input.delivery.userIds);
+  if (input.managerIds.includes(input.actorId) || new Set(input.managerIds).size !== input.managerIds.length
+    || (input.recipientType === "discord" ? Boolean(input.department) || input.managerIds.length !== 1 : !input.department)) {
+    ctx.addIssue({ code: "custom", message: "Choose a department or one other Discord member", path: ["managerIds"] });
+  }
+  if (checked.size !== input.delivery.userIds.length || checked.size !== recipients.size || Array.from(recipients).some((id) => !checked.has(id))
+    || input.delivery.checkedAt < Date.now() - 120_000 || input.delivery.checkedAt > Date.now() + 30_000) {
+    ctx.addIssue({ code: "custom", message: "Verify message delivery to every participant before creating the meeting", path: ["delivery"] });
+  }
+});
 export const meetingStateSchema = z.object({
   id: meetingId,
   reference: meetingReference,
   guildId: discordId,
   roundNumber: z.number().int().min(1).max(100).default(1),
   parentMeetingId: meetingId.optional(),
-  departments: z.array(z.enum(["content", "operations", "competitive", "creators", "community", "staff", "founder"])).max(7).default([]),
+  departments: z.array(meetingDepartment).max(7).default([]),
   reuseAvailability: z.literal(true).optional(),
-  internal: z.object({ topic: z.string().min(1).max(160) }).strict().optional(),
+  internal: z.object({ topic: z.string().min(1).max(160), recipientType: z.enum(["department", "discord"]).default("department"), deliveryCheckedAt: z.number().int().positive().optional() }).strict().optional(),
   nearTerm: z.object({ at: z.number().int().positive(), confirmed: z.boolean().default(false), notice: message.optional() }).strict().nullable().optional(),
   notBefore: z.number().int().positive().optional(),
   bookedAt: z.number().int().positive().optional(),
@@ -71,7 +89,8 @@ export const meetingStateSchema = z.object({
   const managers = state.participants.filter((row) => row.kind === "manager");
   const applicants = state.participants.filter((row) => row.kind === "applicant");
   if (!managers.length || applicants.length !== (state.applicantId ? 1 : 0)
-    || state.reference.startsWith("XEN-MTG-") !== Boolean(state.internal) || (state.internal && (!state.applicantId || state.departments.length !== 1))
+    || state.reference.startsWith("XEN-MTG-") !== Boolean(state.internal) || (state.internal && (!state.applicantId
+      || state.departments.length !== (state.internal.recipientType === "discord" ? 0 : 1)))
     || (state.applicantId && applicants[0]?.userId !== state.applicantId)
     || new Set(state.participants.map((row) => row.userId)).size !== state.participants.length
     || state.windowEnd - state.windowStart !== 14 * 24 * 60 * 60 * 1000

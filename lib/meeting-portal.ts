@@ -158,7 +158,7 @@ export async function portalDetail(id: string, guildId: string, allowed: string[
       'attempts', JSON_EXTRACT(detail, '$.attempts'), 'retryPaused', JSON_EXTRACT(detail, '$.retryPaused')) AS detail FROM discord_meeting_history
     WHERE meeting_id = ? AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT 26`, [id, historyBefore, historyBefore]);
   const prefix = current.state.reference.split("-")[1], table = prefix === "APP" ? "applications" : prefix === "INT" ? "interest_submissions" : "contact_submissions";
-  const answers = internal ? [{ topic: internal.topic, department: current.state.departments[0] }]
+  const answers = internal ? [{ topic: internal.topic, ...(internal.recipientType === "discord" ? { recipient: "Discord member" } : { department: current.state.departments[0] }) }]
     : (await getDbPool().execute<RowDataPacket[]>(`SELECT * FROM ${table} WHERE ${prefix === "INT" ? "reference_code" : "public_reference"} = ?`, [current.state.reference]))[0];
   let outcome = null, outcomeEvents: unknown[] = [];
   if (!internal && access?.actorId !== current.state.applicantId) try {

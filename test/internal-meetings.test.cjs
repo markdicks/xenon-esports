@@ -5,7 +5,8 @@ const user = (n) => String(100000000000000000n + BigInt(n));
 const api = (pool) => load("lib/meetings.ts", { "@/lib/db": { getDbPool: () => pool }, "@/lib/meeting-contract": contract });
 const at = Date.parse("2027-02-01T10:00:00Z");
 const input = { requestId: "48979db8-5e85-45fb-b399-5d77523f8300", actorId: user(2), guildId: user(1),
-  requester: "Xenon person", department: "competitive", topic: "Practice schedule", managerIds: [user(3), user(3), user(2)] };
+  requester: "Xenon person", department: "competitive", topic: "Practice schedule", managerIds: [user(3)],
+  delivery: { checkedAt: at, userIds: [user(2), user(3)] } };
 async function fixture(t) {
   let row; t.mock.method(Date, "now", () => at);
   const calls = [], pool = { async execute(sql, args) {
@@ -27,6 +28,35 @@ test("internal requests are idempotent, scoped to a department and have no publi
   assert.deepEqual(f.row.state.participants.map((row) => row.userId), [user(2), user(3)]);
   assert.deepEqual(f.row.state.departments, ["competitive"]);
   assert.ok(f.calls.every(([sql]) => sql.includes("discord_meetings")));
+});
+
+test("manual Discord requests retain resolved participants without inventing a department", async (t) => {
+  t.mock.method(Date, "now", () => at);
+  const direct = { ...input, requestId: "58979db8-5e85-45fb-b399-5d77523f8300", recipientType: "discord", department: undefined };
+  let saved;
+  const meetings = api({ execute: async (_sql, args) => { saved = JSON.parse(args[4]); return [{ affectedRows: 1 }]; } });
+  await meetings.createInternalMeeting(direct);
+  assert.deepEqual(saved.departments, []); assert.equal(saved.internal.recipientType, "discord");
+  assert.equal(saved.internal.deliveryCheckedAt, at); assert.deepEqual(saved.participants.map((row) => row.userId), [user(2), user(3)]);
+});
+
+test("missing, stale, future or incomplete DM checks cannot create a database record", async (t) => {
+  t.mock.method(Date, "now", () => at);
+  let writes = 0; const meetings = api({ execute: async () => { writes++; throw new Error("Unexpected write"); } });
+  for (const delivery of [undefined, { checkedAt: at, userIds: [user(2)] }, { checkedAt: at - 120001, userIds: input.delivery.userIds },
+    { checkedAt: at + 30001, userIds: input.delivery.userIds }, { checkedAt: at, userIds: [user(2), user(3), user(4)] }]) {
+    await assert.rejects(meetings.createInternalMeeting({ ...input, delivery }));
+  }
+  assert.equal(writes, 0);
+});
+
+test("direct recipients cannot mix a department, self, duplicates or multiple people", (t) => {
+  t.mock.method(Date, "now", () => at);
+  assert.equal(contract.meetingRequestSchema.safeParse(input).success, true);
+  for (const changes of [{ recipientType: "discord" }, { recipientType: "discord", department: undefined, managerIds: [user(3), user(4)] },
+    { managerIds: [user(2)] }, { managerIds: [user(3), user(3)] }]) {
+    assert.equal(contract.meetingRequestSchema.safeParse({ ...input, ...changes }).success, false);
+  }
 });
 test("internal requests in the portal are visible to participants or explicit admin view-all, not other department staff", async (t) => {
   const f = await fixture(t), calls = [];

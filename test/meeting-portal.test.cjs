@@ -101,6 +101,29 @@ test("portal API authenticates first and rejects forged scope/action fields", as
   assert.equal((await api.POST(request(body))).status, 200);
 });
 
+test("meeting creation API requires fresh delivery checks for exactly the trusted participants", async (t) => {
+  const previous = process.env.WEBSITE_BOT_TOKEN; process.env.WEBSITE_BOT_TOKEN = "portal-test";
+  t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
+  const at = Date.now(), created = [];
+  t.mock.method(Date, "now", () => at);
+  const api = load("app/api/bot/meeting-portal/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract, "@/lib/meeting-outcome-contract": outcomeContract,
+    "@/lib/meetings": { createInternalMeeting: async (body) => { created.push(body); return { id: "a".repeat(24), reference: "XEN-MTG-ABCDEF123456" }; } }, "@/lib/meeting-portal": portal() });
+  const body = { action: "request-meeting", requestId: "48979db8-5e85-45fb-b399-5d77523f8300", guildId: id(1), actorId: id(2), allowedRoutes: [], teamMember: true,
+    requester: "Nickname", recipientType: "discord", topic: "Practice schedule", managerIds: [id(3)], delivery: { checkedAt: at, userIds: [id(2), id(3)] } };
+  const request = (value, token = "portal-test") => new Request("https://xenon.example/api/bot/meeting-portal", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: JSON.stringify(value) });
+  assert.equal((await api.POST(request(body, "wrong"))).status, 401);
+  assert.equal((await api.POST(request({ ...body, delivery: undefined }))).status, 400);
+  assert.equal((await api.POST(request({ ...body, delivery: { checkedAt: at, userIds: [id(2), id(4)] } }))).status, 400);
+  assert.equal((await api.POST(request({ ...body, delivery: { checkedAt: at - 120001, userIds: body.delivery.userIds } }))).status, 400);
+  assert.equal((await api.POST(request({ ...body, department: "competitive" }))).status, 400);
+  assert.equal((await api.POST(request({ ...body, teamMember: false }))).status, 403);
+  assert.equal(created.length, 0);
+  assert.equal((await api.POST(request(body))).status, 201);
+  assert.equal(created[0].recipientType, "discord"); assert.equal(created[0].department, undefined);
+  assert.equal((await api.POST(request({ ...body, recipientType: "department", department: "competitive" }))).status, 201);
+  assert.equal(created.length, 2);
+});
+
 test("portal API reports collation failures without blaming migration 009 or exposing driver errors", async (t) => {
   const previous = process.env.WEBSITE_BOT_TOKEN; process.env.WEBSITE_BOT_TOKEN = "portal-test";
   t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });

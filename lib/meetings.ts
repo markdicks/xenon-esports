@@ -1,7 +1,8 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Pool, PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { getDbPool } from "@/lib/db";
-import { availabilityDayCount, bookingNotice, dueMeetingReminder, futureAvailabilitySlots, hour, matchingSlot, meetingStateSchema, minimumAvailabilityDays, minimumAvailabilitySlots, needsNearTermConfirmation, readyToMatch, slotLength, type MeetingState } from "@/lib/meeting-contract";
+import { availabilityDayCount, bookingNotice, dueMeetingReminder, futureAvailabilitySlots, hour, matchingSlot, meetingRequestSchema, meetingStateSchema, minimumAvailabilityDays, minimumAvailabilitySlots, needsNearTermConfirmation, readyToMatch, slotLength, type MeetingState } from "@/lib/meeting-contract";
+import type { z } from "zod";
 
 type MeetingRow = RowDataPacket & { id: string; revision: string; state: unknown; lease_token?: string };
 const parseState = (row: MeetingRow) => meetingStateSchema.parse(typeof row.state === "string" ? JSON.parse(row.state) : row.state);
@@ -38,12 +39,13 @@ export async function ensureMeeting(reference: string, guildId: string, managerI
     [state.id, reference, guildId, randomUUID(), JSON.stringify(meetingStateSchema.parse(state))]);
   return true;
 }
-export async function createInternalMeeting(input: { requestId: string; guildId: string; actorId: string; requester: string; department: MeetingState["departments"][number]; topic: string; managerIds: string[] }) {
+export async function createInternalMeeting(request: z.input<typeof meetingRequestSchema>) {
+  const input = meetingRequestSchema.parse(request);
   const id = createHash("sha256").update(JSON.stringify([input.guildId, input.actorId, input.requestId])).digest("hex").slice(0, 24);
   const reference = `XEN-MTG-${id.slice(0, 12).toUpperCase()}`, now = Date.now();
   const start = Math.ceil((now + bookingNotice) / slotLength) * slotLength;
-  const state = meetingStateSchema.parse({ id, reference, guildId: input.guildId, applicantDiscord: input.requester, applicantId: input.actorId, departments: [input.department],
-    internal: { topic: input.topic }, submissionTopics: [input.topic], attentionSince: now,
+  const state = meetingStateSchema.parse({ id, reference, guildId: input.guildId, applicantDiscord: input.requester, applicantId: input.actorId, departments: input.department ? [input.department] : [],
+    internal: { topic: input.topic, recipientType: input.recipientType, deliveryCheckedAt: input.delivery.checkedAt }, submissionTopics: [input.topic], attentionSince: now,
     windowStart: start, windowEnd: start + 14 * 24 * hour, status: "pending",
     participants: [{ userId: input.actorId, kind: "applicant", slots: [], responded: false },
       ...Array.from(new Set(input.managerIds)).filter((userId) => userId !== input.actorId).map((userId) => ({ userId, kind: "manager", slots: [], responded: false }))],

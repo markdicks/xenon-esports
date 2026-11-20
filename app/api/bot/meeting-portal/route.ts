@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { authorizeBot, meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
-import { discordId, meetingId } from "@/lib/meeting-contract";
+import { discordId, meetingId, meetingRequestSchema } from "@/lib/meeting-contract";
 import { departmentKeys } from "@/lib/meeting-outcome-contract";
 import { createInternalMeeting } from "@/lib/meetings";
 import { getStaffProfile, portalAddManagers, portalCorrectDiscord, portalDetail, portalFailure, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
@@ -15,8 +15,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ ...context, action: z.literal("add-managers"), id: meetingId, revision: z.string().uuid(), managerIds: z.array(discordId).min(1).max(5) }).strict(),
   z.object({ ...context, action: z.literal("profile") }).strict(),
   z.object({ ...context, action: z.literal("save-profile"), profile: profileSchema }).strict(),
-  z.object({ ...context, action: z.literal("request-meeting"), requestId: z.string().uuid(), requester: z.string().trim().min(1).max(120),
-    department: z.enum(departmentKeys), topic: z.string().trim().min(1).max(160), managerIds: z.array(discordId).min(1).max(90) }).strict(),
+  z.object({ ...context, ...meetingRequestSchema.shape, action: z.literal("request-meeting") }).strict(),
 ]);
 export async function POST(request: Request) {
   if (!authorizeBot(request)) return json({ error: "Unauthorized" }, 401);
@@ -37,8 +36,10 @@ export async function POST(request: Request) {
       await saveStaffProfile(input.guildId, input.actorId, input.profile); return json({ success: true });
     }
     if (input.action === "request-meeting") {
-      if (!input.teamMember || !input.managerIds.some((id) => id !== input.actorId)) return json({ error: "A Xenon team role and an eligible department recipient are required" }, 403);
-      return json(await createInternalMeeting(input), 201);
+      if (!input.teamMember || !input.managerIds.some((id) => id !== input.actorId)) return json({ error: "A Xenon team role and another eligible recipient are required" }, 403);
+      const checked = meetingRequestSchema.safeParse(input);
+      if (!checked.success) return json({ error: "Choose valid meeting recipients and verify Discord message delivery before creating the meeting" }, 400);
+      return json(await createInternalMeeting(checked.data), 201);
     }
     if (input.action === "add-managers") {
       const result = await portalAddManagers(input.id, input.guildId, input.allowedRoutes, input.actorId, input.revision, input.managerIds, access);

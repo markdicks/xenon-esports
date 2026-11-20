@@ -21,3 +21,13 @@ Outstanding meetings are picked up automatically after deploy; weekly cards are 
 - A match within three hours is offered only to the requester via private DM, without a reservation. Confirming accepts that exact time, subject to the original conflict check and two-hour booking notice. Skipping looks for a later time. Other participants never receive the private confirmation link.
 
 Deploy the website before the bot. Both updates use the existing meeting tables and JSON fields; no migration is required. Keep Discord DMs open for confirmations and reminders.
+
+### Manual Discord recipients and delivery checks
+
+In **Meetings & submissions > Request a meeting**, staff can select a department or **Discord user (enter manually)**. Manual entry accepts an exact Discord username, user ID or mention belonging to one other current human member of the selected server. Nicknames are displayed after resolution but are not used to guess an identity. The existing staff permission check applies to both choices.
+
+Before saving a request, the bot sends a short delivery-check DM to the requester and every selected recipient. A blocked DM, missing/ambiguous member or unavailable Discord lookup prevents creation of the meeting record, invitations and room. The form retains the draft and explains how to retry. Opening a DM channel is not considered a successful check; Discord must accept the message. This verifies delivery at that moment, not a read receipt or a guarantee that future DMs will remain enabled.
+
+Successful checks are reused for up to one minute when retrying the same draft, and concurrent submissions share one attempt. Creation remains idempotent through the existing request ID. The authenticated website endpoint requires a fresh delivery receipt covering exactly the resolved participants; browser-supplied participant IDs or receipts are never forwarded. Manual requests use the existing meeting JSON with an empty department list and keep the existing scheduling, private links and audit trail.
+
+Deploy the website before the bot. No migration, new environment variable, bot MySQL access or extra database is needed. Existing meetings default to their original department mode. Do not send dummy production meeting requests or delivery checks for testing.
