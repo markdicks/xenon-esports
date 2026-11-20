@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
 import { discordId, meetingId, minimumAvailabilityDays, minimumAvailabilitySlots } from "@/lib/meeting-contract";
-import { getMeeting, saveAvailability, validParticipantToken } from "@/lib/meetings";
+import { decideNearTermMeeting, getMeeting, saveAvailability, validParticipantToken } from "@/lib/meetings";
 export const runtime = "nodejs";
 const credentials = z.object({ userId: discordId, token: z.string().regex(/^[a-f0-9]{64}$/) });
-const schema = z.union([credentials.extend({ action: z.literal("read") }).strict(), credentials.extend({
+const schema = z.union([credentials.extend({ action: z.literal("read") }).strict(),
+  credentials.extend({ action: z.enum(["confirm-time", "skip-time"]), at: z.number().int().positive() }).strict(), credentials.extend({
   slots: z.array(z.number().int().positive()).max(672),
   timezone: z.string().max(100).refine((value) => { try { new Intl.DateTimeFormat("en", { timeZone: value }); return true; } catch { return false; } }),
 }).strict()]);
@@ -28,6 +29,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!meetingId.safeParse(id).success || !body.success || !validParticipantToken(id, body.data.userId, body.data.token)) return json({ error: "This private invitation is invalid" }, 403);
   try {
     if ("action" in body.data) {
+      if (body.data.action !== "read") {
+        const result = await decideNearTermMeeting(id, body.data.userId, body.data.at, body.data.action === "confirm-time");
+        return result === "saved" ? json({ success: true }) : json({ error: result === "missing" ? "Invitation not found" : "This time has changed or is no longer available. Refresh for the latest status." }, result === "missing" ? 404 : 409);
+      }
       const current = await getMeeting(id);
       const person = current?.state.participants.find((row) => row.userId === body.data.userId);
       if (!current || !person) return json({ error: "Invitation not found" }, 404);
@@ -35,8 +40,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return json({ view: { initialSlots: person.slots, initialTimezone: person.timezone, initialResponded: person.responded,
         windowStart: state.windowStart, windowEnd: state.windowEnd, serverNow: current.serverNow, status: ["accepted", "rejected", "closed"].includes(state.workflowStatus) ? "closed" : state.status,
         scheduledAt: state.scheduledAt, reference: state.reference, attending: state.status === "scheduled" ? state.attendeeIds.includes(person.userId) : undefined,
+        internalTopic: state.internal?.topic,
+        nearTermAt: state.internal && person.kind === "applicant" && !state.nearTerm?.confirmed ? state.nearTerm?.at : undefined,
         sharedParticipants: state.participants.map((row, index) => ({ key: row.kind === "applicant" ? "applicant" : `manager-${index}`,
-          name: row.displayName || (row.kind === "applicant" ? "Applicant" : `Manager ${index + 1}`), own: row.userId === person.userId,
+          name: row.displayName || (row.kind === "applicant" ? state.internal ? "Requester" : "Applicant" : `Staff ${index + 1}`), own: row.userId === person.userId,
           responded: row.responded, source: row.source, waived: Boolean(row.availabilityWaivedAt), slots: row.slots })),
         channelUrl: state.channelId && state.attendeeIds.includes(person.userId) ? `https://discord.com/channels/${state.guildId}/${state.channelId}` : null } });
     }

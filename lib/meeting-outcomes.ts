@@ -32,6 +32,7 @@ export async function readMeetingOutcome(id: string, guildId: string) {
     WHERE meeting.id = ? AND meeting.guild_id = ?`, [id, guildId]);
   if (!rows[0]) fail("Meeting not found.", 404);
   const meeting = meetingStateSchema.parse(parsed(rows[0].meeting_state));
+  if (meeting.internal) fail("Internal meetings do not have onboarding outcomes.", 409);
   let route = meeting.reference.startsWith("XEN-APP-") ? "application" : "interest";
   if (meeting.reference.startsWith("XEN-CON-")) {
     const [source] = await getDbPool().execute<RowDataPacket[]>("SELECT subject FROM contact_submissions WHERE public_reference = ?", [meeting.reference]);
@@ -48,7 +49,7 @@ export async function readMeetingOutcome(id: string, guildId: string) {
 export async function listMeetingOutcomes(guildId: string, after: string | null) {
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT meeting.id, meeting.state AS meeting_state, outcome.state AS outcome_state
     FROM discord_meetings AS meeting LEFT JOIN discord_meeting_outcomes AS outcome ON outcome.meeting_id = meeting.id
-    WHERE meeting.guild_id = ? AND (? IS NULL OR meeting.id > ?)
+    WHERE meeting.guild_id = ? AND (? IS NULL OR meeting.id > ?) AND meeting.public_reference NOT LIKE 'XEN-MTG-%'
       AND CONVERT(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.status')) USING utf8mb4) COLLATE utf8mb4_unicode_ci = 'scheduled'
       AND (CAST(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.scheduledAt')) AS UNSIGNED) >= ?
         OR CONVERT(JSON_UNQUOTE(JSON_EXTRACT(outcome.state, '$.status')) USING utf8mb4) COLLATE utf8mb4_unicode_ci IN ('review','offered','countered','declined','accepted')
@@ -74,6 +75,7 @@ async function changeOutcome(id: string, guildId: string, actorId: string | null
     const [meetings] = await connection.execute<RowDataPacket[]>("SELECT state FROM discord_meetings WHERE id = ? AND guild_id = ? FOR UPDATE", [id, guildId]);
     if (!meetings[0]) fail("Meeting not found.", 404);
     const meeting = meetingStateSchema.parse(parsed(meetings[0].state));
+    if (meeting.internal) fail("Internal meetings do not have onboarding outcomes.", 409);
     if (meeting.status !== "scheduled" || !meeting.channelId || !meeting.applicantId) fail("This meeting is not ready for follow-up.");
     if (meeting.workflowStatus === "closed") fail("This submission is closed.");
     if (manuallyStopped(meeting)) fail("Automated follow-up was stopped by a submission manager.");

@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const discordId = z.string().regex(/^\d{17,20}$/);
 export const meetingId = z.string().regex(/^[a-f0-9]{24}$/);
+export const meetingReference = z.string().regex(/^XEN-(?:(?:APP|INT|CON)-[A-Z0-9]{6}|MTG-[A-F0-9]{12})$/);
 export const slotLength = 30 * 60 * 1000;
 export const bookingNotice = 2 * 60 * 60 * 1000;
 export const minimumAvailabilitySlots = 3;
@@ -28,12 +29,17 @@ export const maxAutomaticRetries = 15;
 const message = z.object({ channelId: discordId, messageId: discordId, buttonVersion: z.literal(1).optional(), purposeVersion: z.literal(1).optional() }).strict();
 export const meetingStateSchema = z.object({
   id: meetingId,
-  reference: z.string().regex(/^XEN-(APP|INT|CON)-[A-Z0-9]{6}$/),
+  reference: meetingReference,
   guildId: discordId,
   roundNumber: z.number().int().min(1).max(100).default(1),
   parentMeetingId: meetingId.optional(),
   departments: z.array(z.enum(["content", "operations", "competitive", "creators", "community", "staff", "founder"])).max(7).default([]),
   reuseAvailability: z.literal(true).optional(),
+  internal: z.object({ topic: z.string().min(1).max(160) }).strict().optional(),
+  nearTerm: z.object({ at: z.number().int().positive(), confirmed: z.boolean().default(false), notice: message.optional() }).strict().nullable().optional(),
+  notBefore: z.number().int().positive().optional(),
+  bookedAt: z.number().int().positive().optional(),
+  reminders: z.object({ day: z.number().int().positive().optional(), six: z.number().int().positive().optional() }).strict().optional(),
   submissionTopics: z.array(z.string().max(160)).max(15).optional(),
   attentionSince: z.number().int().positive().optional(), attentionNotifiedAt: z.number().int().positive().optional(),
   applicantDiscord: z.string().min(1).max(120),
@@ -65,6 +71,7 @@ export const meetingStateSchema = z.object({
   const managers = state.participants.filter((row) => row.kind === "manager");
   const applicants = state.participants.filter((row) => row.kind === "applicant");
   if (!managers.length || applicants.length !== (state.applicantId ? 1 : 0)
+    || state.reference.startsWith("XEN-MTG-") !== Boolean(state.internal) || (state.internal && (!state.applicantId || state.departments.length !== 1))
     || (state.applicantId && applicants[0]?.userId !== state.applicantId)
     || new Set(state.participants.map((row) => row.userId)).size !== state.participants.length
     || state.windowEnd - state.windowStart !== 14 * 24 * 60 * 60 * 1000
@@ -86,10 +93,22 @@ export function matchingSlot(state: MeetingState, now = Date.now(), busy: BusyMe
   const available = (userId: string, slot: number) => !busy.some((meeting) => meeting.attendeeIds.includes(userId)
     && slot < meeting.scheduledAt + slotLength && meeting.scheduledAt < slot + slotLength);
   for (const slot of Array.from(new Set(applicant.slots)).sort((a, b) => a - b)) {
-    if (slot < now + bookingNotice || !available(applicant.userId, slot)) continue;
+    if (slot < Math.max(now + bookingNotice, state.notBefore ?? 0) || !available(applicant.userId, slot)) continue;
     const attending = managers.filter((row) => row.slots.includes(slot) && available(row.userId, slot));
     if (attending.length >= required) return { at: slot, attendeeIds: [applicant.userId, ...attending.map((row) => row.userId)] };
   }
+  return null;
+}
+
+export function needsNearTermConfirmation(state: MeetingState, at: number, now: number) {
+  return Boolean(state.internal && at <= now + 3 * hour && !(state.nearTerm?.at === at && state.nearTerm.confirmed));
+}
+
+export function dueMeetingReminder(state: MeetingState, bookedAt: number, now: number): "day" | "six" | null {
+  const at = state.scheduledAt;
+  if (!at || !state.channelId || !state.announcementId || state.status !== "scheduled" || ["closed", "rejected", "accepted"].includes(state.workflowStatus) || at <= now) return null;
+  if (at - now <= 6 * hour) return at - bookedAt >= 6 * hour && !state.reminders?.six ? "six" : null;
+  if (at - now <= 24 * hour && at - bookedAt >= 48 * hour && !state.reminders?.day) return "day";
   return null;
 }
 

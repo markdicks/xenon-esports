@@ -11,3 +11,13 @@ Deploy the website update **before** the Discord bot update. This extends the ex
 Bot alerts default to channel `1308354117625708614` in the configured guild and the unique Discord role named **Staff**. Set `WEBSITE_MEETING_STAFF_ROLE_ID` if the name is different or ambiguous. Optionally use `WEBSITE_MEETING_STAFF_CHANNEL_ID` to change the channel. The bot needs view, send, read-history and role-mention capability there. If no Staff role resolves, messages are posted without a role ping.
 
 Outstanding meetings are picked up automatically after deploy; weekly cards are delivered in batches. Do not test by sending dummy production invitations or Staff pings.
+
+## Calendar, reminders and internal requests
+
+- The private availability calendar shows numbered, colour-coded circles that match the participant legend. Focusing or selecting a slot also lists who is free. People who have not replied or who were waived are not marked available.
+- The bot DMs booked attendees, including attending staff, about six hours before a meeting. Bookings made at least 48 hours in advance also get a day-before DM. A booking made inside six hours already gets the normal confirmation and does not get a duplicate reminder. Closed meetings and non-attendees get no reminders. If a day-before reminder is missed during downtime, the bot sends only the six-hour reminder once it is due.
+- In **Meetings & submissions > Request a meeting**, authorised staff and admins choose a department and enter a short topic. Department recipients are resolved from the current Discord role configuration. Requests are visible to their participants and to admins who explicitly switch on **View all**.
+- For internal requests, both the requester and department staff can use their opted-in **My availability** profiles. The bot books a conflict-free match automatically when the existing quorum is met. Otherwise it asks for availability or sends a no-match update. Internal meetings do not trigger applicant onboarding.
+- A match within three hours is offered only to the requester via private DM, without a reservation. Confirming accepts that exact time, subject to the original conflict check and two-hour booking notice. Skipping looks for a later time. Other participants never receive the private confirmation link.
+
+Deploy the website before the bot. Both updates use the existing meeting tables and JSON fields; no migration is required. Keep Discord DMs open for confirmations and reminders.

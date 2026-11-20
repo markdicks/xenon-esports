@@ -2,10 +2,12 @@ import { z } from "zod";
 import { authorizeBot, meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
 import { discordId, meetingId } from "@/lib/meeting-contract";
 import { departmentKeys } from "@/lib/meeting-outcome-contract";
+import { createInternalMeeting } from "@/lib/meetings";
 import { getStaffProfile, portalAddManagers, portalCorrectDiscord, portalDetail, portalFailure, portalList, portalMutate, profileSchema, routeKeys, saveStaffProfile } from "@/lib/meeting-portal";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(routeKeys.length), allowedDepartments: z.array(z.enum(departmentKeys)).max(departmentKeys.length).default([]) };
+const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(routeKeys.length), allowedDepartments: z.array(z.enum(departmentKeys)).max(departmentKeys.length).default([]),
+  teamMember: z.boolean().optional(), viewAllInternal: z.boolean().optional(), hideInternal: z.boolean().optional() };
 const schema = z.discriminatedUnion("action", [
   z.object({ ...context, action: z.literal("list"), before: meetingId.nullable().default(null), status: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).nullable().default(null), search: z.string().max(120).default("") }).strict(),
   z.object({ ...context, action: z.literal("detail"), id: meetingId, historyBefore: z.number().int().positive().nullable().default(null) }).strict(),
@@ -13,6 +15,8 @@ const schema = z.discriminatedUnion("action", [
   z.object({ ...context, action: z.literal("add-managers"), id: meetingId, revision: z.string().uuid(), managerIds: z.array(discordId).min(1).max(5) }).strict(),
   z.object({ ...context, action: z.literal("profile") }).strict(),
   z.object({ ...context, action: z.literal("save-profile"), profile: profileSchema }).strict(),
+  z.object({ ...context, action: z.literal("request-meeting"), requestId: z.string().uuid(), requester: z.string().trim().min(1).max(120),
+    department: z.enum(departmentKeys), topic: z.string().trim().min(1).max(160), managerIds: z.array(discordId).min(1).max(90) }).strict(),
 ]);
 export async function POST(request: Request) {
   if (!authorizeBot(request)) return json({ error: "Unauthorized" }, 401);
@@ -20,7 +24,7 @@ export async function POST(request: Request) {
   try { parsed = schema.safeParse(await readMeetingJson(request)); } catch { return json({ error: "Invalid portal request" }, 400); }
   if (!parsed.success) return json({ error: "Invalid portal request" }, 400);
   const input = parsed.data;
-  const access = { actorId: input.actorId, departments: input.allowedDepartments };
+  const access = { actorId: input.actorId, departments: input.allowedDepartments, viewAllInternal: input.viewAllInternal, hideInternal: input.hideInternal || input.teamMember === false };
   try {
     if (input.action === "list") return json(await portalList(input.guildId, input.allowedRoutes, input.before, input.status, input.search, access));
     if (input.action === "detail") {
@@ -29,8 +33,12 @@ export async function POST(request: Request) {
     }
     if (input.action === "profile") return json({ profile: await getStaffProfile(input.guildId, input.actorId) });
     if (input.action === "save-profile") {
-      if (!input.allowedRoutes.length && !input.allowedDepartments.length && input.profile.enabled) return json({ error: "A notification or department role is required to save staff availability" }, 403);
+      if (!input.teamMember && !input.allowedRoutes.length && !input.allowedDepartments.length && input.profile.enabled) return json({ error: "A Xenon staff or department role is required to save weekly availability" }, 403);
       await saveStaffProfile(input.guildId, input.actorId, input.profile); return json({ success: true });
+    }
+    if (input.action === "request-meeting") {
+      if (!input.teamMember || !input.managerIds.some((id) => id !== input.actorId)) return json({ error: "A Xenon team role and an eligible department recipient are required" }, 403);
+      return json(await createInternalMeeting(input), 201);
     }
     if (input.action === "add-managers") {
       const result = await portalAddManagers(input.id, input.guildId, input.allowedRoutes, input.actorId, input.revision, input.managerIds, access);

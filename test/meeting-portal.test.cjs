@@ -92,7 +92,7 @@ test("portal API authenticates first and rejects forged scope/action fields", as
   const previous = process.env.WEBSITE_BOT_TOKEN; process.env.WEBSITE_BOT_TOKEN = "portal-test";
   t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
   const api = load("app/api/bot/meeting-portal/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract, "@/lib/meeting-outcome-contract": outcomeContract,
-    "@/lib/meeting-portal": { ...portal(), portalList: async () => ({ items: [], next: null }) } });
+    "@/lib/meetings": {}, "@/lib/meeting-portal": { ...portal(), portalList: async () => ({ items: [], next: null }) } });
   const body = { action: "list", guildId: id(1), actorId: id(3), allowedRoutes: ["interest"] };
   const request = (value, secret = "portal-test") => new Request("https://xenon.example/api/bot/meeting-portal", { method: "POST", headers: { Authorization: `Bearer ${secret}` }, body: JSON.stringify(value) });
   assert.equal((await api.POST(request(body, "wrong"))).status, 401);
@@ -107,7 +107,7 @@ test("portal API reports collation failures without blaming migration 009 or exp
   const logs = [], original = console.error; console.error = (...values) => logs.push(values);
   t.after(() => { console.error = original; });
   const api = load("app/api/bot/meeting-portal/route.ts", { "@/lib/meeting-api": load("lib/meeting-api.ts"), "@/lib/meeting-contract": contract, "@/lib/meeting-outcome-contract": outcomeContract,
-    "@/lib/meeting-portal": { ...portal(), portalList: async () => { throw Object.assign(new Error("private answer"), { code: "ER_CANT_AGGREGATE_2COLLATIONS", sql: "private SQL" }); } } });
+    "@/lib/meetings": {}, "@/lib/meeting-portal": { ...portal(), portalList: async () => { throw Object.assign(new Error("private answer"), { code: "ER_CANT_AGGREGATE_2COLLATIONS", sql: "private SQL" }); } } });
   const response = await api.POST(new Request("https://xenon.example/api/bot/meeting-portal", { method: "POST", headers: { Authorization: "Bearer portal-test" },
     body: JSON.stringify({ action: "list", guildId: id(1), actorId: id(3), allowedRoutes: ["interest"] }) }));
   assert.equal(response.status, 503); assert.equal((await response.json()).code, "PORTAL_COLLATION_MISMATCH");

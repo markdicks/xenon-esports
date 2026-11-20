@@ -64,6 +64,25 @@ test("simultaneous bookings serialize and cannot double-book a shared manager", 
   assert.equal(f.stats().released, 3); assert.equal(f.stats().destroyed, 0);
   assert.equal(f.calls.filter((sql) => sql.includes("GET_LOCK")).length, 3);
 });
+test("an internal match within three hours does not reserve a time before exact requester approval", async (t) => {
+  t.mock.method(Date, "now", () => at - 3 * contract.hour);
+  const row = meeting(1), later = at + contract.slotLength;
+  Object.assign(row.state, { reference: "XEN-MTG-ABCDEF123456", internal: { topic: "Team plans" }, departments: ["competitive"] });
+  const f = fixture([row]);
+  const proposed = await f.api.bookMeetingJob(f.identity(row));
+  assert.equal(proposed.state.status, "collecting"); assert.equal(proposed.state.scheduledAt, null);
+  assert.deepEqual(proposed.state.nearTerm, { at, confirmed: false });
+  let saved = f.rows.get(row.id);
+  assert.equal(await f.api.saveMeetingJob({ state: { ...saved.state, status: "scheduled", scheduledAt: at, attendeeIds: [row.state.applicantId, id(3)] },
+    revision: saved.revision, leaseToken: saved.leaseToken, release: false }), null);
+  saved.state.nearTerm.confirmed = true;
+  const busy = meeting(2);
+  Object.assign(busy.state, { status: "scheduled", scheduledAt: at, attendeeIds: [id(3)] });
+  f.rows.set(busy.id, busy);
+  const booked = await f.api.bookMeetingJob(f.identity(saved));
+  assert.equal(booked.state.scheduledAt, later);
+  assert.equal(booked.state.bookedAt, Date.now()); assert.equal(booked.state.nearTerm, null);
+});
 test("bookings respect earlier saved meetings, including another guild and a closed submission", async () => {
   const previous = meeting(1); previous.state.status = "scheduled"; previous.state.workflowStatus = "closed";
   previous.state.guildId = id(999); previous.state.scheduledAt = at; previous.state.attendeeIds = [id(3)];
