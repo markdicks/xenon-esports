@@ -1,5 +1,7 @@
 import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
+import Link from "next/link";
+import { LeadershipPillars } from "@/components/leadership/LeadershipPillars";
 import { getStaffRoles } from "@/lib/discord-roster";
 
 export const dynamic = "force-dynamic";
@@ -8,8 +10,9 @@ function initials(name: string) {
   return name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
 
-export default async function LeadershipPage() {
-  const roles = await getStaffRoles();
+export default async function LeadershipPage({ searchParams }: { searchParams: Promise<{ view?: string | string[] }> }) {
+  const pillarsOnly = (await searchParams).view === "pillars";
+  const roles = pillarsOnly ? [] : await getStaffRoles();
 
   return (
     <main className="xenon-shell min-h-screen">
@@ -18,10 +21,14 @@ export default async function LeadershipPage() {
         <div className="mx-auto max-w-7xl">
           <div className="max-w-3xl">
             <p className="font-display text-xs font-bold uppercase tracking-[0.34em] text-ion">Leadership</p>
-            <h1 className="mt-4 font-display text-5xl font-black leading-none text-white sm:text-7xl">The people steering the return.</h1>
-            <p className="mt-6 text-lg leading-8 text-steel">Leadership assignments are read from Xenon&apos;s Discord server. When a role changes there, this page updates without a hard-coded team list.</p>
+            <h1 className="mt-4 font-display text-5xl font-black leading-none text-white sm:text-7xl">{pillarsOnly ? <>Six pillars.<br /><span className="text-volt">One Xenon.</span></> : "The people steering the return."}</h1>
+            <p className="mt-6 text-lg leading-8 text-steel">{pillarsOnly ? "Explore the six leadership portfolios and the responsibilities connecting Xenon's competitive, creator and community work." : <>Leadership assignments are read from Xenon&apos;s Discord server. When a role changes there, this page updates without a hard-coded team list.</>}</p>
           </div>
-          <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <nav aria-label="Leadership views" className="mt-8 inline-flex max-w-full flex-wrap gap-1 rounded-lg border border-white/15 bg-black/25 p-1">
+            <Link href="/leadership" aria-current={!pillarsOnly ? "page" : undefined} className={`rounded-md px-5 py-3 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ion ${pillarsOnly ? "text-steel hover:text-white" : "bg-volt text-carbon"}`}>Leadership team</Link>
+            <Link href="/leadership?view=pillars" aria-current={pillarsOnly ? "page" : undefined} className={`rounded-md px-5 py-3 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ion ${pillarsOnly ? "bg-volt text-carbon" : "text-steel hover:text-white"}`}>Leadership pillars</Link>
+          </nav>
+          {pillarsOnly ? <LeadershipPillars /> : <div className="mt-12 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {roles.map((role) => (
               <article key={role.id} className="rounded-lg bg-white/[0.04] p-6 ring-1 ring-white/10 transition hover:ring-ion/45">
                 <p className="font-display text-xs font-bold uppercase tracking-[0.22em] text-ion">{role.department}</p>
@@ -48,7 +55,7 @@ export default async function LeadershipPage() {
                 </div>
               </article>
             ))}
-          </div>
+          </div>}
         </div>
       </section>
       <Footer />
