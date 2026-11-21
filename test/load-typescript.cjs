@@ -9,7 +9,7 @@ module.exports = function loadTypeScript(file, overrides = {}) {
   }).outputText;
   const loaded = { exports: {} };
   const resolve = (name) => Object.hasOwn(overrides, name) ? overrides[name]
-    : name.startsWith("@/data/") ? module.exports(`${name.slice(2)}.ts`, overrides) : require(name);
+    : name.startsWith("@/") ? module.exports(`${name.slice(2)}${fs.existsSync(path.join(__dirname, "..", `${name.slice(2)}.ts`)) ? ".ts" : ".tsx"}`, overrides) : require(name);
   new Function("require", "module", "exports", compiled)(resolve, loaded, loaded.exports);
   return loaded.exports;
 };

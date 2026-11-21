@@ -6,6 +6,9 @@ import { getMeeting } from "@/lib/meetings";
 import { meetingFollowUp, meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
 import { outcomeSchema } from "@/lib/meeting-outcome-contract";
 import { interestRoutes, selectedInterestRoutes } from "@/data/interest-routing";
+import { expandProfileAvailability, profileSchema, readAvailabilityProfile, slotsForWeek, writeAvailabilityProfile, type AvailabilityProfile } from "@/lib/availability-contract";
+export { profileSchema } from "@/lib/availability-contract";
+export type { AvailabilityProfile } from "@/lib/availability-contract";
 
 export const routeKeys = ["application", "interest", "contact-partnerships", "contact-business", "contact-media", "contact-general-enquiry", ...interestRoutes.map(([key]) => key)] as const;
 export type RouteKey = typeof routeKeys[number];
@@ -41,40 +44,43 @@ export function portalFailure(error: unknown, action: string) {
     ? String(error.sqlMessage).match(/^Unknown column '([a-zA-Z0-9_.$]{1,80})'/)?.[1] : undefined;
   return { error: message, code, diagnostic: { action, code, databaseCode: failure && databaseCode ? databaseCode : undefined, field } };
 }
-export const profileSchema = z.object({ enabled: z.boolean().default(true), timezone: z.string().max(100).refine((zone) => {
-  try { new Intl.DateTimeFormat("en", { timeZone: zone }); return true; } catch { return false; }
-}), weeklySlots: z.array(z.number().int().min(0).max(335)).max(336).refine((slots) => new Set(slots).size === slots.length) }).strict();
-export type AvailabilityProfile = z.infer<typeof profileSchema>;
 export function expandWeeklyAvailability(profile: Pick<AvailabilityProfile, "timezone" | "weeklySlots">, start: number, end: number) {
-  const formatter = new Intl.DateTimeFormat("en-US", { timeZone: profile.timezone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-  const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], selected = new Set(profile.weeklySlots), slots = [];
-  const indexAt = (at: number) => {
-    const parts = formatter.formatToParts(at), part = (type: string) => parts.find((row) => row.type === type)!.value;
-    return weekdays.indexOf(part("weekday")) * 48 + Number(part("hour")) * 2 + Math.floor(Number(part("minute")) / 30);
-  };
-  for (let at = start; at < end; at += slotLength) {
-    if (selected.has(indexAt(at)) && selected.has(indexAt(at + slotLength - 1))) slots.push(at);
-  }
-  return slots;
+  return expandProfileAvailability(profileSchema.parse(profile), start, end).slots;
 }
 export async function getStaffProfile(guildId: string, userId: string) {
   const [rows] = await getDbPool().execute<RowDataPacket[]>("SELECT timezone, weekly_slots FROM discord_staff_availability WHERE guild_id = ? AND user_id = ?", [guildId, userId]);
-  return rows[0] ? profileSchema.parse({ timezone: rows[0].timezone, weeklySlots: typeof rows[0].weekly_slots === "string" ? JSON.parse(rows[0].weekly_slots) : rows[0].weekly_slots }) : null;
+  return rows[0] ? readAvailabilityProfile(rows[0] as { timezone: unknown; weekly_slots: unknown }) : null;
 }
-export async function saveStaffProfile(guildId: string, userId: string, profile: AvailabilityProfile) {
+export async function saveStaffProfile(guildId: string, userId: string, input: z.input<typeof profileSchema>) {
+  const profile = profileSchema.parse(input), revision = randomUUID();
   const connection = await getDbPool().getConnection();
   try {
     await connection.beginTransaction();
+    const [rows] = await connection.execute<RowDataPacket[]>("SELECT timezone, weekly_slots FROM discord_staff_availability WHERE guild_id = ? AND user_id = ? FOR UPDATE", [guildId, userId]);
+    const current = rows[0] ? readAvailabilityProfile(rows[0] as { timezone: unknown; weekly_slots: unknown }) : null;
+    if ((current?.revision ?? null) !== profile.revision) throw Object.assign(new Error("Availability changed. Reload the saved schedule before saving again."), { code: "AVAILABILITY_CONFLICT" });
     if (!profile.enabled) await connection.execute("DELETE FROM discord_staff_availability WHERE guild_id = ? AND user_id = ?", [guildId, userId]);
     else await connection.execute(`INSERT INTO discord_staff_availability (guild_id, user_id, timezone, weekly_slots) VALUES (?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE timezone = VALUES(timezone), weekly_slots = VALUES(weekly_slots)`, [guildId, userId, profile.timezone, JSON.stringify(profile.weeklySlots)]);
+      ON DUPLICATE KEY UPDATE timezone = VALUES(timezone), weekly_slots = VALUES(weekly_slots)`, [guildId, userId, profile.timezone, writeAvailabilityProfile(profile, revision)]);
     // Invalidate in-flight snapshots before they can book against old standing times.
     await connection.execute(`UPDATE discord_meetings SET revision = UUID(), finished_at = NULL, next_attempt_at = NOW()
       WHERE guild_id = ? AND JSON_SEARCH(state, 'one', ?, NULL, '$.participants[*].userId') IS NOT NULL
       AND ${sqlText("JSON_UNQUOTE(JSON_EXTRACT(state, '$.status'))")} <> 'scheduled'
       AND ${sqlText("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.workflowStatus')), 'new')")} NOT IN ('accepted','rejected','closed')`, [guildId, userId]);
     await connection.commit();
+    return profile.enabled ? { ...profile, revision } : null;
   } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+}
+export async function availabilityOverview(guildId: string, userIds: string[], weekStart: string) {
+  if (!userIds.length) return [];
+  const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT user_id, timezone, weekly_slots, updated_at FROM discord_staff_availability
+    WHERE guild_id = ? AND user_id IN (${userIds.map(() => "?").join(",")})`, [guildId, ...userIds]);
+  return userIds.map((userId) => {
+    const row = rows.find((value) => value.user_id === userId);
+    if (!row) return { userId, timezone: null, mode: null, slots: null, updatedAt: null };
+    const profile = readAvailabilityProfile(row as { timezone: unknown; weekly_slots: unknown });
+    return { userId, timezone: profile.timezone, mode: profile.mode, slots: slotsForWeek(profile, weekStart), updatedAt: new Date(row.updated_at).toISOString() };
+  });
 }
 export async function applyStandingAvailability(state: MeetingState) {
   const people = state.participants.filter((row) => (row.kind === "manager" || state.internal) && !row.availabilityWaivedAt && (!row.responded || row.source === "standing"));
@@ -85,8 +91,8 @@ export async function applyStandingAvailability(state: MeetingState) {
   catch (error) { if ((error as { code?: string }).code === "ER_NO_SUCH_TABLE") return; throw error; }
   for (const person of people) {
     const saved = profiles.find((row) => row.user_id === person.userId);
-    const profile = saved ? profileSchema.parse({ timezone: saved.timezone, weeklySlots: typeof saved.weekly_slots === "string" ? JSON.parse(saved.weekly_slots) : saved.weekly_slots }) : null;
-    if (profile) { person.slots = expandWeeklyAvailability(profile, state.windowStart, state.windowEnd); person.responded = true; person.source = "standing"; person.timezone = profile.timezone; }
+    const profile = saved ? readAvailabilityProfile(saved as { timezone: unknown; weekly_slots: unknown }) : null;
+    if (profile) { const expanded = expandProfileAvailability(profile, state.windowStart, state.windowEnd); person.slots = expanded.slots; person.responded = expanded.complete || expanded.slots.length > 0; person.source = "standing"; person.timezone = profile.timezone; }
     else if (person.source === "standing") { person.slots = []; person.responded = false; person.source = "meeting"; }
   }
 }

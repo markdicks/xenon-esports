@@ -83,10 +83,11 @@ test("detail denies an unrelated route before loading answers or history", async
 });
 test("profile saves are transactional and invalidate active snapshots without clearing leases", async () => {
   const calls = []; let committed = false, released = false;
-  const connection = { beginTransaction: async () => {}, execute: async (sql, params) => { calls.push([sql, params]); }, commit: async () => { committed = true; }, rollback: async () => {}, release: () => { released = true; } };
+  const connection = { beginTransaction: async () => {}, execute: async (sql, params) => { calls.push([sql, params]); return [[]]; }, commit: async () => { committed = true; }, rollback: async () => {}, release: () => { released = true; } };
   const api = portal({ getConnection: async () => connection });
   await api.saveStaffProfile(id(1), id(3), { enabled: true, timezone: "UTC", weeklySlots: [1] });
-  assert.equal(committed, true); assert.equal(released, true); assert.match(calls[1][0], /revision = UUID/); assert.doesNotMatch(calls[1][0], /lease_token\s*=|leased_until\s*=/);
+  const update = calls.find(([sql]) => sql.startsWith("UPDATE discord_meetings"));
+  assert.equal(committed, true); assert.equal(released, true); assert.match(update[0], /revision = UUID/); assert.doesNotMatch(update[0], /lease_token\s*=|leased_until\s*=/);
 });
 test("portal API authenticates first and rejects forged scope/action fields", async (t) => {
   const previous = process.env.WEBSITE_BOT_TOKEN; process.env.WEBSITE_BOT_TOKEN = "portal-test";

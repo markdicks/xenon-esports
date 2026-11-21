@@ -7,7 +7,7 @@ import { getStaffProfile, portalAddManagers, portalCorrectDiscord, portalDetail,
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(routeKeys.length), allowedDepartments: z.array(z.enum(departmentKeys)).max(departmentKeys.length).default([]),
-  teamMember: z.boolean().optional(), viewAllInternal: z.boolean().optional(), hideInternal: z.boolean().optional() };
+  teamMember: z.boolean().optional(), availabilityMember: z.boolean().optional(), viewAllInternal: z.boolean().optional(), hideInternal: z.boolean().optional() };
 const schema = z.discriminatedUnion("action", [
   z.object({ ...context, action: z.literal("list"), before: meetingId.nullable().default(null), status: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).nullable().default(null), search: z.string().max(120).default("") }).strict(),
   z.object({ ...context, action: z.literal("detail"), id: meetingId, historyBefore: z.number().int().positive().nullable().default(null) }).strict(),
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     }
     if (input.action === "profile") return json({ profile: await getStaffProfile(input.guildId, input.actorId) });
     if (input.action === "save-profile") {
-      if (!input.teamMember && !input.allowedRoutes.length && !input.allowedDepartments.length && input.profile.enabled) return json({ error: "A Xenon staff or department role is required to save weekly availability" }, 403);
+      if (!input.availabilityMember && input.profile.enabled) return json({ error: "The Xenon Member role is required to share availability" }, 403);
       await saveStaffProfile(input.guildId, input.actorId, input.profile); return json({ success: true });
     }
     if (input.action === "request-meeting") {
