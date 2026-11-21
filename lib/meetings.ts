@@ -216,7 +216,8 @@ async function busyMeetings(connection: PoolConnection, state: MeetingState) {
     AND CAST(JSON_UNQUOTE(JSON_EXTRACT(state, '$.scheduledAt')) AS UNSIGNED) > ?
     AND CAST(JSON_UNQUOTE(JSON_EXTRACT(state, '$.scheduledAt')) AS UNSIGNED) < ?`,
   [state.id, state.windowStart - slotLength, state.windowEnd]);
-  return rows.map(parseState).filter((other) => other.status === "scheduled" && other.scheduledAt !== null)
+  return rows.map(parseState).filter((other) => other.status === "scheduled" && other.scheduledAt !== null
+    && !other.lifecycle?.cancellation?.confirmedAt && !other.lifecycle?.finishedAt)
     .map((other) => ({ scheduledAt: other.scheduledAt!, attendeeIds: other.attendeeIds }));
 }
 export async function bookMeetingJob(input: JobIdentity) {

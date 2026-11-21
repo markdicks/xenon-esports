@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { z } from "zod";
 import { getDbPool } from "@/lib/db";
+import { availabilityTeamsSchema } from "@/lib/availability-contract";
 
 const id = z.string().regex(/^\d{17,20}$/);
 const pillarKeys = ["content", "operations", "competitive", "creators", "community", "staff"] as const;
@@ -44,6 +45,7 @@ const pillarSchema = z.object({
   && new Set(pillar.teams?.map((team) => team.id)).size === (pillar.teams?.length || 0)
   && new Set(pillar.teams?.map((team) => team.categoryId).filter(Boolean)).size === (pillar.teams?.filter((team) => team.categoryId).length || 0));
 export const managementSchema = z.object({
+  availabilityTeams: availabilityTeamsSchema.optional(),
   pillars: z.array(pillarSchema).length(pillarKeys.length).refine((pillars) => new Set(pillars.map((pillar) => pillar.key)).size === pillarKeys.length
     && pillars.reduce((total, pillar) => total + pillar.leadAccess.length, 0) <= 1000
     && (() => { const ids = pillars.flatMap((pillar) => [...pillar.subroles, ...(pillar.teams || []).flatMap((team) => team.roles)]).map((role) => role.id); return new Set(ids).size === ids.length; })()),

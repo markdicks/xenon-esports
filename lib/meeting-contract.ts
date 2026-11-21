@@ -51,6 +51,15 @@ export const meetingStateSchema = z.object({
   guildId: discordId,
   roundNumber: z.number().int().min(1).max(100).default(1),
   parentMeetingId: meetingId.optional(),
+  lifecycle: z.object({
+    finishedAt: z.number().int().positive().optional(),
+    cancellation: z.object({
+      token: z.string().uuid(), requestedBy: discordId, requestedAt: z.number().int().positive(),
+      expiresAt: z.number().int().positive(), reason: z.string().trim().min(1).max(500),
+      confirmedBy: discordId.optional(), confirmedAt: z.number().int().positive().optional(),
+    }).strict().optional(),
+    records: z.record(z.string().regex(/^[a-z0-9:-]{1,100}$/), z.object({ channelId: discordId, messageId: discordId }).strict()).default({}),
+  }).strict().optional(),
   departments: z.array(meetingDepartment).max(7).default([]),
   reuseAvailability: z.literal(true).optional(),
   internal: z.object({ topic: z.string().min(1).max(160), recipientType: z.enum(["department", "discord"]).default("department"), deliveryCheckedAt: z.number().int().positive().optional() }).strict().optional(),

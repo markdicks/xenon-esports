@@ -163,6 +163,8 @@ test("a follow-up creates one linked round without replacing the original meetin
   assert.deepEqual(child.departments, ["creators"]); assert.deepEqual(child.participants.filter((person) => person.kind === "manager").map((person) => person.userId), [id(4)]);
   assert.equal(child.status, "pending"); assert.equal(child.channelId, null); assert.equal(child.windowEnd - child.windowStart, 14 * 86400000);
   assert.equal(f.data().meetings.get(meetingId).state.channelId, id(10));
+  assert.ok(f.data().meetings.get(meetingId).state.lifecycle.finishedAt);
+  assert.equal(child.lifecycle, undefined);
 });
 test("a follow-up carries only future saved times on later days for its actual participants", async () => {
   const f = fixture(); await f.review();

@@ -34,6 +34,20 @@ test("individual weeks use the member timezone at Monday boundaries and repeated
   assert.equal(contract.mondayOf("2027-01-01"), "2026-12-28");
 });
 
+test("SAST comparisons convert the same actual hour across timezones and preserve unknown adjacent weeks", () => {
+  const local = contract.profileSchema.parse({ timezone: "Africa/Johannesburg", weeklySlots: [40, 41] });
+  const london = contract.profileSchema.parse({ timezone: "Europe/London", weeklySlots: [36, 37] });
+  assert.deepEqual(contract.projectAvailabilityWeek(local, week).gridSlots, [40, 41]);
+  assert.deepEqual(contract.projectAvailabilityWeek(london, week).gridSlots, [40, 41]);
+  const individual = contract.profileSchema.parse({ timezone: "America/New_York", weeklySlots: [], mode: "individual", weeks: [{ weekStart: week, slots: [0, 1] }] });
+  const projection = contract.projectAvailabilityWeek(individual, week);
+  assert.deepEqual(projection.gridSlots, [14, 15]); assert.ok(projection.unknownSlots.includes(0));
+  assert.equal(projection.unknownSlots.includes(14), false);
+  const dst = contract.profileSchema.parse({ timezone: "America/New_York", weeklySlots: [6 * 48 + 2] });
+  const repeated = contract.projectAvailabilityWeek(dst, "2026-10-26");
+  assert.ok(repeated.gridSlots.includes(6 * 48 + 14)); assert.ok(repeated.gridSlots.includes(6 * 48 + 16));
+});
+
 test("invalid dates, weekdays, duplicate weeks, invalid timezones and oversized calendars are rejected", () => {
   for (const date of ["2026-02-30", "2026-11-24", "not-a-date"]) assert.equal(contract.weekSchema.safeParse(date).success, false);
   for (const change of [{ timezone: "Invalid/Zone" }, { weeks: [{ weekStart: week, slots: [336] }] },

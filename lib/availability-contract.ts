@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 const halfHour = 30 * 60 * 1000;
+export const availabilityTeamsSchema = z.array(z.object({
+  roleId: z.string().regex(/^\d{17,20}$/), name: z.string().trim().min(1).max(80), color: z.string().regex(/^#[a-fA-F0-9]{6}$/),
+}).strict()).max(32).refine((teams) => new Set(teams.map((team) => team.roleId)).size === teams.length);
 export function mondayOf(date: string) {
   const day = new Date(`${date}T00:00:00Z`);
   if (!Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== date) throw new Error("Invalid calendar date");
@@ -38,7 +41,7 @@ export function slotsForWeek(profile: AvailabilityProfile, weekStart: string): n
   if (!profile.enabled) return null;
   return profile.mode === "recurring" ? profile.weeklySlots : profile.weeks.find((week) => week.weekStart === weekStart)?.slots ?? null;
 }
-export function expandProfileAvailability(profile: AvailabilityProfile, start: number, end: number) {
+function expandWindow(profile: AvailabilityProfile, start: number, end: number) {
   const formatter = new Intl.DateTimeFormat("en-US", { timeZone: profile.timezone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
   const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const atSlot = (at: number) => {
@@ -46,13 +49,24 @@ export function expandProfileAvailability(profile: AvailabilityProfile, start: n
     const week = mondayOf(`${part("year")}-${part("month")}-${part("day")}`);
     return { week, index: weekdays.indexOf(part("weekday")) * 48 + Number(part("hour")) * 2 + Math.floor(Number(part("minute")) / 30) };
   };
-  const slots: number[] = [];
+  const slots: number[] = [], unknown: number[] = [];
   let complete = true;
   for (let at = start; at < end; at += halfHour) {
     const first = atSlot(at), last = atSlot(at + halfHour - 1);
     const selected = slotsForWeek(profile, first.week), ending = first.week === last.week ? selected : slotsForWeek(profile, last.week);
-    if (selected === null || ending === null) complete = false;
+    if (selected === null || ending === null) { complete = false; unknown.push(at); }
     if (selected?.includes(first.index) && ending?.includes(last.index)) slots.push(at);
   }
+  return { slots, complete, unknown };
+}
+export function expandProfileAvailability(profile: AvailabilityProfile, start: number, end: number) {
+  const { slots, complete } = expandWindow(profile, start, end);
   return { slots, complete };
+}
+export function projectAvailabilityWeek(profile: AvailabilityProfile, weekStart: string) {
+  // The comparison grid uses SAST (UTC+02:00), which has no daylight-saving shift.
+  // Resolve every interval in the member's timezone, including adjacent local weeks.
+  const start = Date.parse(`${weekStart}T00:00:00+02:00`);
+  const { slots, unknown } = expandWindow(profile, start, start + 7 * 86400000);
+  return { gridSlots: slots.map((at) => (at - start) / halfHour), unknownSlots: unknown.map((at) => (at - start) / halfHour) };
 }

@@ -97,6 +97,17 @@ test("expired leases and stale revisions cannot reserve a time", async () => {
   assert.equal(await f.api.bookMeetingJob(f.identity(row)), null);
   assert.equal(f.rows.get(row.id).state.status, "collecting");
 });
+
+test("a confirmed cancellation frees its reserved time, while a pending cancellation keeps it reserved", async () => {
+  const previous = meeting(1), next = meeting(2);
+  Object.assign(previous.state, { status: "scheduled", scheduledAt: at, attendeeIds: [id(3)], lifecycle: { records: {}, cancellation: {
+    token: "0899fdb8-5e85-45fb-b399-5d77523f8300", requestedBy: id(3), requestedAt: Date.now(), expiresAt: Date.now() + 600000, reason: "Unavailable" } } });
+  const pending = fixture([previous, next]);
+  assert.equal((await pending.api.bookMeetingJob(pending.identity(next))).state.scheduledAt, at + contract.slotLength);
+  Object.assign(previous.state.lifecycle.cancellation, { confirmedBy: id(11), confirmedAt: Date.now() });
+  const cancelled = fixture([previous, next]);
+  assert.equal((await cancelled.api.bookMeetingJob(cancelled.identity(next))).state.scheduledAt, at);
+});
 test("the legacy save path cannot bypass conflicts or move an existing reservation", async () => {
   const first = meeting(1), next = meeting(2), f = fixture([first, next]);
   const result = await f.api.bookMeetingJob(f.identity(first));

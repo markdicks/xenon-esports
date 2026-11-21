@@ -6,7 +6,7 @@ import { getMeeting } from "@/lib/meetings";
 import { meetingFollowUp, meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
 import { outcomeSchema } from "@/lib/meeting-outcome-contract";
 import { interestRoutes, selectedInterestRoutes } from "@/data/interest-routing";
-import { expandProfileAvailability, profileSchema, readAvailabilityProfile, slotsForWeek, writeAvailabilityProfile, type AvailabilityProfile } from "@/lib/availability-contract";
+import { expandProfileAvailability, profileSchema, projectAvailabilityWeek, readAvailabilityProfile, slotsForWeek, writeAvailabilityProfile, type AvailabilityProfile } from "@/lib/availability-contract";
 export { profileSchema } from "@/lib/availability-contract";
 export type { AvailabilityProfile } from "@/lib/availability-contract";
 
@@ -77,9 +77,10 @@ export async function availabilityOverview(guildId: string, userIds: string[], w
     WHERE guild_id = ? AND user_id IN (${userIds.map(() => "?").join(",")})`, [guildId, ...userIds]);
   return userIds.map((userId) => {
     const row = rows.find((value) => value.user_id === userId);
-    if (!row) return { userId, timezone: null, mode: null, slots: null, updatedAt: null };
+    if (!row) return { userId, timezone: null, mode: null, slots: null, gridSlots: [], unknownSlots: Array.from({ length: 336 }, (_, index) => index), updatedAt: null };
     const profile = readAvailabilityProfile(row as { timezone: unknown; weekly_slots: unknown });
-    return { userId, timezone: profile.timezone, mode: profile.mode, slots: slotsForWeek(profile, weekStart), updatedAt: new Date(row.updated_at).toISOString() };
+    return { userId, timezone: profile.timezone, mode: profile.mode, slots: slotsForWeek(profile, weekStart),
+      ...projectAvailabilityWeek(profile, weekStart), updatedAt: new Date(row.updated_at).toISOString() };
   });
 }
 export async function applyStandingAvailability(state: MeetingState) {
@@ -187,6 +188,7 @@ export async function portalMutate(id: string, guildId: string, allowed: string[
   if (!current) return "missing";
   if (current.revision !== revision) return "conflict";
   const state = current.state;
+  if (state.lifecycle?.cancellation?.confirmedAt || state.lifecycle?.finishedAt) return "closed";
   if (action === "status") {
     if (["accepted", "rejected", "closed"].includes(state.workflowStatus) && !["accepted", "rejected", "closed"].includes(value || "")) return "closed";
     if (state.status === "scheduled" && !["accepted", "closed", "rejected"].includes(value || "")) return "scheduled";
