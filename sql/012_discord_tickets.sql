@@ -1,0 +1,6 @@
+-- Additive tables in the existing website database. The authenticated ticket service also initializes these on first use.
+CREATE TABLE IF NOT EXISTS discord_ticket_config (guild_id VARCHAR(20) PRIMARY KEY, revision CHAR(36) NOT NULL, configuration JSON NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS discord_tickets (number BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, id CHAR(24) NOT NULL UNIQUE, guild_id VARCHAR(20) NOT NULL, opener_id VARCHAR(20) NOT NULL, active_key VARCHAR(45) NULL UNIQUE, revision CHAR(36) NOT NULL, state JSON NOT NULL, lease_token CHAR(36) NULL, leased_until DATETIME NULL, next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY ticket_guild (guild_id, number)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS discord_ticket_audit (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, guild_id VARCHAR(20) NOT NULL, ticket_id CHAR(24) NULL, actor_id VARCHAR(20) NOT NULL, action VARCHAR(40) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, KEY ticket_audit (guild_id, ticket_id, id)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
