@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { interestRoutes } from "@/data/interest-routing";
+import { botStorageFailure } from "@/lib/bot-api-errors";
 import {
   getDiscordSubmissionRoutes,
   saveDiscordSubmissionRoutes,
@@ -48,8 +49,9 @@ export async function GET(request: Request) {
   try {
     return json(await getDiscordSubmissionRoutes(parsedGuildId.data));
   } catch (error) {
-    console.error("Could not load Discord submission routes", error);
-    return json({ error: "Could not load submission routes" }, 503);
+    const failure = botStorageFailure(error, "submission-routes", "read", request);
+    console.error("Bot storage unavailable", failure.diagnostic);
+    return json(failure.body, 503);
   }
 }
 
@@ -74,7 +76,8 @@ export async function PUT(request: Request) {
     await saveDiscordSubmissionRoutes(parsed.data.guildId, parsed.data.routes as SubmissionRoutes);
     return json({ success: true });
   } catch (error) {
-    console.error("Could not save Discord submission routes", error);
-    return json({ error: "Could not save submission routes" }, 503);
+    const failure = botStorageFailure(error, "submission-routes", "save", request);
+    console.error("Bot storage unavailable", failure.diagnostic);
+    return json(failure.body, 503);
   }
 }

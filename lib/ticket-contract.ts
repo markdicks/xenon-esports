@@ -8,9 +8,14 @@ const image = z.union([z.literal(""), z.string().url().max(1000).refine((v) => {
 export const defaultTicketEmbed = { title: "Xenon Support", description: "Need help or want to speak privately with the Xenon team?\n\nPress **Open ticket**, give us a short description, and a member of our team will assist you. Please open one ticket per issue and avoid sharing passwords or account tokens.", footer: "Xenon Esports • Private support", color: "#4fffd8", buttonLabel: "Open ticket", image: "", thumbnail: "", footerIcon: "", author: "", url: "" };
 export const ticketEmbedSchema = z.object({ title: z.string().trim().min(1).max(256), description: z.string().trim().min(1).max(4000), footer: z.string().max(1000),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/), buttonLabel: z.string().trim().min(1).max(80), image, thumbnail: image, footerIcon: image, author: z.string().max(256), url: image }).strict();
-export const ticketConfigSchema = z.object({ enabled: z.boolean().default(false), panelChannelId: ticketDiscordId.nullable().default(null),
+export const ticketConfigFields = z.object({ enabled: z.boolean().default(false), panelChannelId: ticketDiscordId.nullable().default(null),
   categoryId: ticketDiscordId.nullable().default(null), archiveCategoryId: ticketDiscordId.nullable().default(null), logChannelId: ticketDiscordId.nullable().default(null),
-  panelMessageId: ticketDiscordId.nullable().default(null), staffRoleIds: ids.default([]), managerRoleIds: ids.nullable().default(null), embed: ticketEmbedSchema.default(defaultTicketEmbed) }).strict()
+  panelMessageId: ticketDiscordId.nullable().default(null), staffRoleIds: ids.default([]), managerRoleIds: ids.nullable().default(null), embed: ticketEmbedSchema.default(defaultTicketEmbed) }).strict();
+export const ticketSetupToken = z.string().regex(/^[a-f0-9]{20}$/);
+export const ticketSetupDraftSchema = z.object({ revision: z.string().uuid().nullable(), config: ticketConfigFields, page: z.enum(["roles", "channels", "message", "access"]), edit: z.boolean(),
+  uncertainResource: z.enum(["categoryId", "archiveCategoryId", "logChannelId"]).nullable().default(null) }).strict();
+export type TicketSetupDraft = z.infer<typeof ticketSetupDraftSchema>;
+export const ticketConfigSchema = ticketConfigFields
   .refine((v) => !v.enabled || Boolean(v.panelChannelId && v.categoryId && v.archiveCategoryId && v.logChannelId && v.staffRoleIds.length), "Choose all ticket resources and at least one support role.")
   .refine((v) => !v.panelChannelId || v.panelChannelId !== v.logChannelId, "The public panel and private logs must use separate channels.")
   .refine((v) => !v.categoryId || v.categoryId !== v.archiveCategoryId, "Choose separate active and archive categories.");

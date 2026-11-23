@@ -4,6 +4,7 @@ import { discordId } from "@/lib/meeting-contract";
 import { availabilityTeamsSchema, profileSchema, weekSchema } from "@/lib/availability-contract";
 import { getAvailabilityTeams, saveAvailabilityTeams } from "@/lib/availability-teams";
 import { availabilityOverview, getStaffProfile, saveStaffProfile } from "@/lib/meeting-portal";
+import { botStorageFailure } from "@/lib/bot-api-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,8 @@ export async function POST(request: Request) {
   } catch (error) {
     const code = (error as { code?: string })?.code;
     if (code === "AVAILABILITY_CONFLICT") return json({ error: "Availability changed in another tab. Reload the saved schedule before saving again." }, 409);
-    console.error("Availability storage unavailable", { action: input.action, code: typeof code === "string" && /^[A-Z0-9_]{1,60}$/.test(code) ? code : "UNKNOWN" });
-    return json({ error: "Availability could not be loaded or saved. Please try again shortly." }, 503);
+    const failure = botStorageFailure(error, "availability", input.action, request);
+    console.error("Bot storage unavailable", failure.diagnostic);
+    return json(failure.body, 503);
   }
 }

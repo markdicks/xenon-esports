@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { getManagementConfig, managementSchema, saveManagementConfig } from "@/lib/discord-management";
+import { botStorageFailure } from "@/lib/bot-api-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function GET(request: Request) {
   const guildId = id.safeParse(new URL(request.url).searchParams.get("guildId"));
   if (!guildId.success) return json({ error: "Invalid server" }, 400);
   try { return json(await getManagementConfig(guildId.data)); }
-  catch (error) { console.error("Could not load Discord management", error); return json({ error: "Management storage unavailable" }, 503); }
+  catch (error) { const failure = botStorageFailure(error, "management", "read", request); console.error("Bot storage unavailable", failure.diagnostic); return json(failure.body, 503); }
 }
 
 export async function PUT(request: Request) {
@@ -50,5 +51,5 @@ export async function PUT(request: Request) {
     const { guildId, revision, config, actorId } = parsed.data;
     const saved = await saveManagementConfig(guildId, revision, config, actorId);
     return saved ? json({ revision: saved }) : json({ error: "Configuration changed. Reload before saving." }, 409);
-  } catch (error) { console.error("Could not save Discord management", error); return json({ error: "Management storage unavailable" }, 503); }
+  } catch (error) { const failure = botStorageFailure(error, "management", "save", request); console.error("Bot storage unavailable", failure.diagnostic); return json(failure.body, 503); }
 }

@@ -1,11 +1,17 @@
 import { z } from "zod";
-import { authorizeBot, meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
-import { ticketConfigSchema, ticketDiscordId as discordId, ticketId, ticketStateSchema } from "@/lib/ticket-contract";
+import { authorizeBot, meetingJson, readMeetingJson } from "@/lib/meeting-api";
+import { ticketConfigSchema, ticketDiscordId as discordId, ticketId, ticketStateSchema, ticketSetupDraftSchema, ticketSetupToken } from "@/lib/ticket-contract";
+import { beginTicketSetup, claimTicketSetup, progressTicketSetup } from "@/lib/ticket-setup-sessions";
+import { botStorageFailure } from "@/lib/bot-api-errors";
 import { changeTicket, leaseTicket, listTickets, readTicket, reserveTicket, saveTicketConfig, saveTicketProgress, ticketConfig, ticketJobs } from "@/lib/tickets";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+function json(body: unknown, status = 200) { const response = meetingJson(body, status); response.headers.set("X-Xenon-Ticket-Setup", "1"); return response; }
 const identity = { guildId: discordId }, target = { ...identity, id: ticketId }, revision = z.string().uuid();
 const schema = z.discriminatedUnion("action", [
+  z.object({ ...identity, action: z.literal("setup-begin"), actorId: discordId, token: ticketSetupToken, draft: ticketSetupDraftSchema }).strict(),
+  z.object({ ...identity, action: z.literal("setup-claim"), actorId: discordId, token: ticketSetupToken }).strict(),
+  z.object({ ...identity, action: z.literal("setup-progress"), actorId: discordId, token: ticketSetupToken, draft: ticketSetupDraftSchema, leaseToken: revision, release: z.boolean(), finish: z.boolean() }).strict(),
   z.object({ ...identity, action: z.literal("config") }).strict(),
   z.object({ ...identity, action: z.literal("save-config"), revision: revision.nullable(), actorId: discordId, config: ticketConfigSchema, mayChangeAccess: z.boolean() }).strict(),
   z.object({ ...identity, action: z.literal("reserve"), openerId: discordId, subject: z.string().trim().min(1).max(100), description: z.string().trim().min(1).max(1500), panelMessageId: discordId }).strict(),
@@ -23,6 +29,9 @@ export async function POST(request: Request) {
   const v = body.data;
   try {
     switch (v.action) {
+      case "setup-begin": return json(await beginTicketSetup(v));
+      case "setup-claim": return json(await claimTicketSetup(v));
+      case "setup-progress": return json(await progressTicketSetup(v));
       case "config": return json(await ticketConfig(v.guildId));
       case "save-config": return json(await saveTicketConfig(v));
       case "reserve": return json(await reserveTicket(v));
@@ -35,6 +44,9 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     const e = error as { status?: number; message?: string }, status = e.status && [400, 403, 404, 409, 429].includes(e.status) ? e.status : 503;
-    return json({ error: status === 503 ? "Ticket storage is unavailable. Check the website connection and ticket migration 012." : e.message }, status);
+    if (status !== 503) return json({ error: e.message }, status);
+    const failure = botStorageFailure(error, "tickets", v.action === "config" || v.action === "read" || v.action === "list" || v.action === "jobs" ? "read" : "save", request);
+    console.error("Bot storage unavailable", failure.diagnostic);
+    return json(failure.body, 503);
   }
 }

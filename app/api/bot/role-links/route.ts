@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { getDiscordRoleLinks, replaceDiscordRoleLinks } from "@/lib/discord-role-links";
+import { botStorageFailure } from "@/lib/bot-api-errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,8 +40,9 @@ export async function GET(request: Request) {
   try {
     return json({ links: await getDiscordRoleLinks(parsedGuildId.data) });
   } catch (error) {
-    console.error("Could not load Discord role links", error);
-    return json({ error: "Could not load role links" }, 503);
+    const failure = botStorageFailure(error, "role-links", "read", request);
+    console.error("Bot storage unavailable", failure.diagnostic);
+    return json(failure.body, 503);
   }
 }
 
@@ -61,7 +63,8 @@ export async function PUT(request: Request) {
     await replaceDiscordRoleLinks(parsed.data.guildId, parsed.data.links);
     return json({ success: true });
   } catch (error) {
-    console.error("Could not save Discord role links", error);
-    return json({ error: "Could not save role links" }, 503);
+    const failure = botStorageFailure(error, "role-links", "save", request);
+    console.error("Bot storage unavailable", failure.diagnostic);
+    return json(failure.body, 503);
   }
 }

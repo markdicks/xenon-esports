@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { botRequestId } from "@/lib/bot-api-errors";
 import { authorizeBot, meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
 import { discordId, meetingId, meetingRequestSchema } from "@/lib/meeting-contract";
 import { departmentKeys } from "@/lib/meeting-outcome-contract";
@@ -55,7 +56,8 @@ export async function POST(request: Request) {
     return result === "saved" ? json({ success: true }) : json({ error: result === "missing" ? "Submission not found" : `Submission ${result}. Reload before changing it.` }, result === "missing" ? 404 : 409);
   } catch (error) {
     const failure = portalFailure(error, input.action);
-    console.error("Meeting portal unavailable", failure.diagnostic);
-    return json({ error: failure.error, code: failure.code }, 503);
+    const requestId = botRequestId(request);
+    console.error("Meeting portal unavailable", { ...failure.diagnostic, requestId });
+    return json({ error: failure.error, code: failure.code, requestId }, 503);
   }
 }
