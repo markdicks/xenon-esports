@@ -13,6 +13,7 @@ export function Footer() {
           <a className="transition hover:text-white" href="/roadmap">Roadmap</a>
           <Link className="transition hover:text-white" href="/collaborations">Collaborations</Link>
           <a className="transition hover:text-white" href="/contact">Contact</a>
+          <Link className="transition hover:text-white" href="/socials">Socials</Link>
         </nav>
       </div>
     </footer>

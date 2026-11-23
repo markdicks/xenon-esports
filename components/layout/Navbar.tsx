@@ -10,6 +10,7 @@ const links = [
   { href: "/community", label: "Community" },
   { href: "/events", label: "Events" },
   { href: "/updates", label: "Updates" },
+  { href: "/socials", label: "Socials" },
 ];
 
 export function Navbar() {

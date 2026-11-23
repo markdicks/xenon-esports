@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
-type Service = "role-links" | "submission-routes" | "management" | "availability" | "tickets";
-const names: Record<Service, string> = { "role-links": "Discord role links", "submission-routes": "submission routing", management: "workspace permission settings", availability: "availability", tickets: "ticket settings and drafts" };
+type Service = "role-links" | "submission-routes" | "management" | "availability" | "tickets" | "socials";
+const names: Record<Service, string> = { "role-links": "Discord role links", "submission-routes": "submission routing", management: "workspace permission settings", availability: "availability", tickets: "ticket settings and drafts", socials: "public Socials settings" };
 const actions = new Set(["read", "save", "profile", "overview", "teams", "save-profile", "save-teams"]);
 const schemaCodes = new Set(["ER_NO_SUCH_TABLE", "ER_BAD_FIELD_ERROR"]);
 const permissionCodes = new Set(["ER_ACCESS_DENIED_ERROR", "ER_DBACCESS_DENIED_ERROR", "ER_TABLEACCESS_DENIED_ERROR", "ER_COLUMNACCESS_DENIED_ERROR", "ER_SPECIFIC_ACCESS_DENIED_ERROR", "ER_TRG_NO_DEFINER"]);
