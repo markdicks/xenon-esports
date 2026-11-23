@@ -63,10 +63,11 @@ export async function createInternalMeeting(request: z.input<typeof meetingReque
   }
   return { id, reference };
 }
-export async function claimMeetings(guildId: string) {
+export async function claimMeetings(guildId: string, supportsReschedule = false) {
   const pool = getDbPool();
   const [rows] = await pool.execute<MeetingRow[]>(`SELECT id, revision, state FROM discord_meetings
     WHERE guild_id = ? AND finished_at IS NULL AND next_attempt_at <= NOW()
+      ${supportsReschedule ? "" : "AND JSON_EXTRACT(state, '$.reschedule') IS NULL"}
       AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.retryPaused')), 'false') <> 'true'
         OR JSON_UNQUOTE(JSON_EXTRACT(state, '$.manualRetryRequested')) = 'true')
       AND (leased_until IS NULL OR leased_until <= NOW()) ORDER BY next_attempt_at, id LIMIT 5`, [guildId]);
@@ -292,7 +293,7 @@ export async function listMeetingReminders(guildId: string) {
   const jobs = [];
   for (const row of rows) {
     const state = parseState(row), bookedAt = Number(row.booked_at), kind = dueMeetingReminder(state, bookedAt, now);
-    if (!kind) continue;
+    if (!kind || state.deletion || (state.reschedule && !state.completed)) continue;
     const leaseToken = randomUUID();
     const [claimed] = await getDbPool().execute<ResultSetHeader>(`UPDATE discord_meetings SET state = JSON_INSERT(state, '$.bookedAt', ?),
       lease_token = ?, leased_until = DATE_ADD(NOW(), INTERVAL 2 MINUTE)
@@ -301,6 +302,13 @@ export async function listMeetingReminders(guildId: string) {
       channelId: state.channelId, scheduledAt: state.scheduledAt, attendeeIds: state.attendeeIds, kind });
   }
   return jobs;
+}
+export async function currentMeetingReminder(id: string, guildId: string, revision: string, leaseToken: string) {
+  const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT state FROM discord_meetings WHERE id = ? AND guild_id = ? AND revision = ?
+    AND lease_token = ? AND leased_until > DATE_ADD(NOW(), INTERVAL 30 SECOND)`, [id, guildId, revision, leaseToken]);
+  if (!rows[0]) return false;
+  const state = meetingStateSchema.parse(typeof rows[0].state === "string" ? JSON.parse(rows[0].state) : rows[0].state);
+  return state.status === "scheduled" && !state.deletion && !["accepted", "rejected", "closed"].includes(state.workflowStatus) && (!state.reschedule || state.completed);
 }
 export async function acknowledgeMeetingReminder(id: string, guildId: string, revision: string, leaseToken: string, kind: "day" | "six") {
   const field = kind === "day" ? "$.reminders.day" : "$.reminders.six";

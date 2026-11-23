@@ -232,7 +232,7 @@ export async function createFollowupMeeting(input: { id: string; guildId: string
       return { userId, kind, slots, responded: slots.length > 0, timezone: prior?.timezone, source: prior?.source };
     };
     const child = meetingStateSchema.parse({ ...meeting, id: randomBytes(12).toString("hex"), roundNumber: rounds[0].round_number + 1,
-      parentMeetingId: meeting.id, lifecycle: undefined, deletion: undefined, staffRoleIds: undefined, deliveryChecks: undefined,
+      parentMeetingId: meeting.id, lifecycle: undefined, deletion: undefined, staffRoleIds: undefined, deliveryChecks: undefined, reschedule: undefined, announcementIds: undefined, reminders: undefined, bookedAt: undefined,
       departments: input.departments, windowStart: start, windowEnd: end,
       reuseAvailability: true, attentionSince: now, attentionNotifiedAt: undefined,
       participants: [...managerIds.map((userId) => carry(userId, "manager")), carry(meeting.applicantId!, "applicant")],

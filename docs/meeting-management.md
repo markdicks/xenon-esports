@@ -58,3 +58,43 @@ Message History available to the bot.
 
 Automated tests and the local disposable demo verify permissions and UI flows.
 Never delete real meetings or send production test DMs solely for validation.
+
+## Staff rescheduling
+
+Open an active booked meeting and choose **Reschedule meeting**. Responsible staff
+roles already managing that meeting, and the actual server owner, can do this.
+Applicants, guests and unrelated administrators cannot reschedule it. Staff choose
+the new time directly and can select additional staff roles and individuals in the
+same atomic action. Current booked attendees remain included; new people are guests
+and gain no management authority. The channel, reference, round and history remain.
+
+The comparison lists existing participants and newly selected people by Discord
+nickname, with daily available ranges and their status at the proposed time. Its
+week grid uses **SAST (UTC+02:00)**; the date/time input explicitly shows the staff
+browser's timezone. Explicit meeting replies take priority inside their original
+14-day window. Other dates use the saved recurring/per-week availability. Missing
+weeks remain **Not provided**, distinct from **Unavailable**. Other booked Xenon
+commitments are shown as busy and always prevent a conflicting booking. Staff must
+refresh the comparison after changing people, review it and explicitly confirm.
+Role expansion is checked again at confirmation so changed membership cannot add
+people who were absent from the comparison.
+
+New times use 30-minute slots, at least two hours' notice and at most 90 days ahead.
+Closed/cancelled meetings, pending cancellations, and meetings with attendance,
+review or proposal activity cannot be rescheduled; use the existing follow-up flow.
+The database booking lock and revision checks prevent concurrent bookings or partial
+participant additions. Active notification leases briefly block rescheduling.
+
+Rescheduling queues persistent cleanup of old booking/reminder DMs for that meeting
+and old time, checking bot authorship and meeting markers. Other meetings and user
+messages remain untouched. Each person's old notices are removed before a new
+**Xenon meeting rescheduled** DM is sent with the old/new time and existing join
+link. The channel's announcement is updated and a reschedule record is posted in
+its chat. New participants get private access. Discord failures raise private staff
+alerts and remain retryable across restarts. A second reschedule waits for the first
+notification job to finish. Reminder state is reset and stale reminder leases cannot
+send an old-time reminder. Follow-up rounds start without inherited reschedule state.
+
+This extends the existing JSON state and authenticated website API. No new
+database, migration, secret or environment variable is required. Deploy the
+website before the bot.

@@ -53,6 +53,10 @@ export const meetingStateSchema = z.object({
   roundNumber: z.number().int().min(1).max(100).default(1),
   parentMeetingId: meetingId.optional(),
   staffRoleIds: z.array(discordId).max(100).optional(),
+  reschedule: z.object({ version: z.number().int().min(1).max(100), fromAt: z.number().int().positive(), at: z.number().int().positive(),
+    actorId: discordId, reason: z.string().trim().max(500), searchSince: z.number().int().positive(), chatUpdated: z.boolean().default(false),
+    cleanup: z.array(z.object({ userId: discordId, receipt: message.optional(), channelId: discordId.optional(), before: discordId.optional(), done: z.boolean().default(false) }).strict()).max(101),
+  }).strict().optional(),
   deliveryChecks: z.array(message.extend({ userId: discordId })).max(101).optional(),
   deletion: z.object({ requestedBy: discordId, requestedAt: z.number().int().positive(), completedAt: z.number().int().positive().optional(),
     initialized: z.boolean().default(false), channelDeleted: z.boolean().default(false),
@@ -101,6 +105,7 @@ export const meetingStateSchema = z.object({
   failureReason: z.string().max(300).nullable(),
   channelId: discordId.nullable(), scheduledAt: z.number().int().positive().nullable(),
   attendeeIds: z.array(discordId).max(101), announcementId: discordId.nullable(),
+  announcementIds: z.array(discordId).max(4).optional(),
   completed: z.boolean(),
 }).strict().superRefine((state, ctx) => {
   const managers = state.participants.filter((row) => row.kind === "manager");
