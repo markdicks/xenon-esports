@@ -84,7 +84,7 @@ export async function availabilityOverview(guildId: string, userIds: string[], w
   });
 }
 export async function applyStandingAvailability(state: MeetingState) {
-  const people = state.participants.filter((row) => (row.kind === "manager" || state.internal) && !row.availabilityWaivedAt && (!row.responded || row.source === "standing"));
+  const people = state.participants.filter((row) => (row.kind !== "applicant" || state.internal) && !row.availabilityWaivedAt && (!row.responded || row.source === "standing"));
   if (!people.length) return;
   let profiles: RowDataPacket[];
   try { [profiles] = await getDbPool().execute<RowDataPacket[]>(`SELECT user_id, timezone, weekly_slots FROM discord_staff_availability
@@ -110,13 +110,14 @@ export async function portalSource(reference: string) {
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT * FROM (${sources}) AS source WHERE reference = ?`, [reference]);
   return rows[0] || null;
 }
-type PortalAccess = { actorId: string; departments: string[]; viewAllInternal?: boolean; hideInternal?: boolean };
+type PortalAccess = { actorId: string; departments: string[]; viewAllInternal?: boolean; hideInternal?: boolean; serverOwner?: boolean; participantAccess?: boolean; actorStaffRoleIds?: string[] };
 function departmentAccess(state: MeetingState, access?: PortalAccess) {
-  return Boolean(access && state.departments.some((key) => access.departments.includes(key))
-    && state.participants.some((person) => person.kind === "manager" && person.userId === access.actorId));
+  return Boolean(access && (access.serverOwner || access.participantAccess || state.staffRoleIds?.some((id) => access.actorStaffRoleIds?.includes(id))
+    || (state.departments.some((key) => access.departments.includes(key)) && state.participants.some((person) => person.kind === "manager" && person.userId === access.actorId))));
 }
 export async function portalList(guildId: string, allowed: string[], before: string | null, status: string | null, search: string, access?: PortalAccess) {
-  if (!allowed.length && !access?.departments.length && (!access || access.hideInternal)) return { items: [], next: null };
+  if (!allowed.length && !access?.departments.length && !access?.serverOwner && !access?.actorStaffRoleIds?.length && (!access || access.hideInternal)) return { items: [], next: null };
+  const rolesClause = access?.actorStaffRoleIds?.length ? `OR (${access.actorStaffRoleIds.map(() => "JSON_CONTAINS(JSON_EXTRACT(meeting.state, '$.staffRoleIds'), JSON_QUOTE(?))").join(" OR ")})` : "";
   const departmentClause = access?.departments.length ? `OR (source.reference IS NOT NULL AND JSON_CONTAINS(JSON_EXTRACT(meeting.state, '$.participants'), JSON_OBJECT('kind', 'manager', 'userId', ?))
     AND (${access.departments.map(() => "JSON_CONTAINS(JSON_EXTRACT(meeting.state, '$.departments'), JSON_QUOTE(?))").join(" OR ")}))` : "";
   const areas = interestRoutes.filter(([key]) => allowed.includes(key)).map(([, label]) => label);
@@ -129,12 +130,12 @@ export async function portalList(guildId: string, allowed: string[], before: str
     COALESCE(source.discord_username, ${sqlText("JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.applicantDiscord'))")}) AS discord_username,
     COALESCE(source.created_at, meeting.created_at) AS created_at FROM discord_meetings AS meeting
     LEFT JOIN (${sources}) AS source ON source.reference = meeting.public_reference
-    WHERE meeting.guild_id = ? AND (? IS NULL OR (meeting.created_at, meeting.id) < (SELECT created_at, id FROM discord_meetings WHERE id = ? AND guild_id = ?)) AND (LENGTH(?) = 0 OR meeting.public_reference LIKE ? OR COALESCE(source.discord_username, ${sqlText("JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.applicantDiscord'))")}) LIKE ?)
+    WHERE meeting.guild_id = ? AND JSON_EXTRACT(meeting.state, '$.deletion') IS NULL AND (? IS NULL OR (meeting.created_at, meeting.id) < (SELECT created_at, id FROM discord_meetings WHERE id = ? AND guild_id = ?)) AND (LENGTH(?) = 0 OR meeting.public_reference LIKE ? OR COALESCE(source.discord_username, ${sqlText("JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.applicantDiscord'))")}) LIKE ?)
     AND (? IS NULL OR ${sqlText("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.workflowStatus')), 'new')")} = ?)
     AND (${sqlText("(CASE WHEN source.type <> 'contact' THEN source.type WHEN LOWER(TRIM(source.subject)) = 'partnerships' THEN 'contact-partnerships' WHEN LOWER(TRIM(source.subject)) = 'business' THEN 'contact-business' WHEN LOWER(TRIM(source.subject)) = 'media' THEN 'contact-media' ELSE 'contact-general-enquiry' END)")}
-      IN (${allowed.map(() => "?").join(",") || "NULL"}) ${interestClause} ${departmentClause} ${internalClause}) ORDER BY meeting.created_at DESC, meeting.id DESC LIMIT 26`,
+      IN (${allowed.map(() => "?").join(",") || "NULL"}) ${interestClause} ${departmentClause} ${rolesClause} ${access?.serverOwner ? "OR 1=1" : ""} ${internalClause}) ORDER BY meeting.created_at DESC, meeting.id DESC LIMIT 26`,
   [guildId, before, before, guildId, search, `%${search}%`, `%${search}%`, status, status, ...allowed, ...areas,
-    ...(access?.departments.length ? [access.actorId, ...access.departments] : []), ...(internal ? [Boolean(access.viewAllInternal), access.actorId] : [])]);
+    ...(access?.departments.length ? [access.actorId, ...access.departments] : []), ...(access?.actorStaffRoleIds || []), ...(internal ? [Boolean(access.viewAllInternal), access.actorId] : [])]);
   const page = rows.slice(0, 25);
   const outcomes = new Map<string, { status: string; failed: boolean }>();
   if (page.length) {
@@ -148,16 +149,17 @@ export async function portalList(guildId: string, allowed: string[], before: str
     return { id: row.id, reference: state.reference, type: row.type, discordUsername: row.discord_username,
       workflowStatus: state.workflowStatus, status: state.status, retryPaused: state.retryPaused,
       roundNumber: state.roundNumber, postMeetingStatus: outcomes.get(row.id)?.status, awaitingConfirmation: Boolean(state.nearTerm && !state.nearTerm.confirmed),
+      closedStatus: state.lifecycle?.cancellation?.confirmedAt ? "Cancelled" : state.lifecycle?.finishedAt || ["onboarded", "followup"].includes(outcomes.get(row.id)?.status || "") ? "Completed" : state.workflowStatus === "closed" ? "Closed" : null,
       createdAt: new Date(row.created_at).toISOString(), ...meetingFollowUp(state, new Date(row.created_at).getTime()),
       postMeetingDeliveryFailed: outcomes.get(row.id)?.failed || false };
   }), next: rows.length > 25 ? page[24].id as string : null };
 }
 export async function portalDetail(id: string, guildId: string, allowed: string[], historyBefore: number | null = null, access?: PortalAccess) {
   const current = await getMeeting(id);
-  if (!current || current.state.guildId !== guildId) return null;
+  if (!current || current.state.guildId !== guildId || current.state.deletion) return null;
   const internal = current.state.internal;
   const source = internal ? { type: "internal", created_at: current.state.attentionSince ?? current.state.windowStart, subject: null, interests: null } : await portalSource(current.state.reference);
-  if (!source || (internal ? !access || access.hideInternal || (!access.viewAllInternal && !current.state.participants.some((person) => person.userId === access.actorId))
+  if (!source || (internal ? !access || access.hideInternal || (!access.serverOwner && !access.participantAccess && !access.viewAllInternal && !current.state.participants.some((person) => person.userId === access.actorId))
     : !allowed.includes(submissionRoute(source.type, source.subject))
       && !(source.type === "interest" && selectedInterestRoutes(source.interests).some((key) => allowed.includes(key))) && !departmentAccess(current.state, access))) return null;
   const [history] = await getDbPool().execute<RowDataPacket[]>(`SELECT id, actor_id, event_type, created_at,
@@ -249,7 +251,7 @@ export async function portalCorrectDiscord(id: string, guildId: string, allowed:
   if (state.status === "scheduled") return "scheduled";
   if (["accepted", "rejected", "closed"].includes(state.workflowStatus)) return "closed";
   state.applicantDiscord = username; state.applicantId = null;
-  state.participants = state.participants.filter((person) => person.kind === "manager");
+  state.participants = state.participants.filter((person) => person.kind !== "applicant");
   state.windowStart = Math.max(state.windowStart, Math.ceil((Date.now() + 7200000) / slotLength) * slotLength); state.windowEnd = state.windowStart + 14 * 86400000;
   for (const person of state.participants) {
     person.slots = []; person.responded = false; person.source = "meeting"; person.resendGeneration++;

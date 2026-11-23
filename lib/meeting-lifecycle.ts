@@ -13,7 +13,7 @@ function project(row: RowDataPacket) {
     id: state.id, guildId: state.guildId, reference: state.reference, roundNumber: state.roundNumber,
     parentMeetingId: state.parentMeetingId, applicantId: state.applicantId, applicantDiscord: state.applicantDiscord,
     channelId: state.channelId, scheduledAt: state.scheduledAt, workflowStatus: state.workflowStatus,
-    internal: Boolean(state.internal), topic: state.internal?.topic, departments: state.departments, lifecycle: state.lifecycle,
+    internal: Boolean(state.internal), topic: state.internal?.topic, departments: state.departments, lifecycle: state.lifecycle, deletion: state.deletion,
     attendeeIds: state.attendeeIds,
     participants: state.participants.map((person) => ({ userId: person.userId, kind: person.kind,
       deliveryFailure: person.deliveryFailure, resendGeneration: person.resendGeneration, reminderFailedAt: person.reminderFailedAt })),

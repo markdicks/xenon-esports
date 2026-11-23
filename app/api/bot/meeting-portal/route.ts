@@ -7,7 +7,8 @@ import { getStaffProfile, portalAddManagers, portalCorrectDiscord, portalDetail,
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const context = { guildId: discordId, actorId: discordId, allowedRoutes: z.array(z.enum(routeKeys)).max(routeKeys.length), allowedDepartments: z.array(z.enum(departmentKeys)).max(departmentKeys.length).default([]),
-  teamMember: z.boolean().optional(), availabilityMember: z.boolean().optional(), viewAllInternal: z.boolean().optional(), hideInternal: z.boolean().optional() };
+  teamMember: z.boolean().optional(), availabilityMember: z.boolean().optional(), viewAllInternal: z.boolean().optional(), hideInternal: z.boolean().optional(),
+  serverOwner: z.boolean().optional(), participantAccess: z.boolean().optional(), actorStaffRoleIds: z.array(discordId).max(100).optional() };
 const schema = z.discriminatedUnion("action", [
   z.object({ ...context, action: z.literal("list"), before: meetingId.nullable().default(null), status: z.enum(["new","reviewing","meeting","accepted","rejected","closed"]).nullable().default(null), search: z.string().max(120).default("") }).strict(),
   z.object({ ...context, action: z.literal("detail"), id: meetingId, historyBefore: z.number().int().positive().nullable().default(null) }).strict(),
@@ -23,7 +24,8 @@ export async function POST(request: Request) {
   try { parsed = schema.safeParse(await readMeetingJson(request)); } catch { return json({ error: "Invalid portal request" }, 400); }
   if (!parsed.success) return json({ error: "Invalid portal request" }, 400);
   const input = parsed.data;
-  const access = { actorId: input.actorId, departments: input.allowedDepartments, viewAllInternal: input.viewAllInternal, hideInternal: input.hideInternal || input.teamMember === false };
+  const access = { actorId: input.actorId, departments: input.allowedDepartments, viewAllInternal: input.viewAllInternal, hideInternal: input.hideInternal || input.teamMember === false,
+    serverOwner: input.serverOwner, participantAccess: input.participantAccess, actorStaffRoleIds: input.actorStaffRoleIds };
   try {
     if (input.action === "list") return json(await portalList(input.guildId, input.allowedRoutes, input.before, input.status, input.search, access));
     if (input.action === "detail") {

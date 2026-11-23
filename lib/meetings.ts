@@ -17,7 +17,9 @@ export function validParticipantToken(id: string, userId: string, token: string)
 }
 export async function getMeeting(id: string) {
   const [rows] = await getDbPool().execute<MeetingRow[]>("SELECT id, revision, state FROM discord_meetings WHERE id = ?", [id]);
-  return rows[0] ? { revision: rows[0].revision, state: parseState(rows[0]), serverNow: Date.now() } : null;
+  if (!rows[0]) return null;
+  const state = parseState(rows[0]);
+  return state.deletion ? null : { revision: rows[0].revision, state, serverNow: Date.now() };
 }
 export async function ensureMeeting(reference: string, guildId: string, managerIds: string[], includeHistorical = false) {
   const pool = getDbPool();
@@ -45,7 +47,8 @@ export async function createInternalMeeting(request: z.input<typeof meetingReque
   const reference = `XEN-MTG-${id.slice(0, 12).toUpperCase()}`, now = Date.now();
   const start = Math.ceil((now + bookingNotice) / slotLength) * slotLength;
   const state = meetingStateSchema.parse({ id, reference, guildId: input.guildId, applicantDiscord: input.requester, applicantId: input.actorId, departments: input.department ? [input.department] : [],
-    internal: { topic: input.topic, recipientType: input.recipientType, deliveryCheckedAt: input.delivery.checkedAt }, submissionTopics: [input.topic], attentionSince: now,
+    internal: { topic: input.topic, recipientType: input.recipientType, deliveryCheckedAt: input.delivery.checkedAt, requestId: input.requestId },
+    deliveryChecks: input.delivery.messages, submissionTopics: [input.topic], attentionSince: now,
     windowStart: start, windowEnd: start + 14 * 24 * hour, status: "pending",
     participants: [{ userId: input.actorId, kind: "applicant", slots: [], responded: false },
       ...Array.from(new Set(input.managerIds)).filter((userId) => userId !== input.actorId).map((userId) => ({ userId, kind: "manager", slots: [], responded: false }))],
@@ -178,7 +181,7 @@ async function writeMeetingJob(pool: Pool | PoolConnection, input: JobSave) {
   [JSON.stringify(input.state), revision, input.state.completed, input.release, input.release, input.state.id, input.revision, input.leaseToken, input.state.guildId, input.state.reference]);
   return result.affectedRows ? revision : null;
 }
-async function withBookingLock<T>(operation: (connection: PoolConnection) => Promise<T>) {
+export async function withBookingLock<T>(operation: (connection: PoolConnection) => Promise<T>) {
   const connection = await getDbPool().getConnection();
   let locked = false, reusable = true;
   try {
@@ -217,7 +220,7 @@ async function busyMeetings(connection: PoolConnection, state: MeetingState) {
     AND CAST(JSON_UNQUOTE(JSON_EXTRACT(state, '$.scheduledAt')) AS UNSIGNED) < ?`,
   [state.id, state.windowStart - slotLength, state.windowEnd]);
   return rows.map(parseState).filter((other) => other.status === "scheduled" && other.scheduledAt !== null
-    && !other.lifecycle?.cancellation?.confirmedAt && !other.lifecycle?.finishedAt)
+    && !other.deletion && !other.lifecycle?.cancellation?.confirmedAt && !other.lifecycle?.finishedAt)
     .map((other) => ({ scheduledAt: other.scheduledAt!, attendeeIds: other.attendeeIds }));
 }
 export async function bookMeetingJob(input: JobIdentity) {
