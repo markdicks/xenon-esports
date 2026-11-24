@@ -98,3 +98,29 @@ send an old-time reminder. Follow-up rounds start without inherited reschedule s
 This extends the existing JSON state and authenticated website API. No new
 database, migration, secret or environment variable is required. Deploy the
 website before the bot.
+
+## Owner availability controls
+
+On an open, unbooked meeting, the Discord server owner can choose **Manage
+availability** for any participant. **Enter times** saves one or more confirmed
+30-minute slots within the current 14-day window, with at least two hours' notice.
+These times are labelled as owner-entered. A participant's own response replaces
+that entry. Their recurring or per-week profile is not changed.
+
+**Ignore their times; keep them attending** bypasses that person's availability
+constraints and unanswered response, but includes them in the booking and its
+Discord notifications. Existing booked Xenon meetings still count as busy, including
+for ignored staff. **Use their saved availability again** removes the ignore and
+restores the saved constraints. Saving a personal response does not silently clear
+an owner ignore. New windows and follow-up rounds do not inherit these overrides.
+
+The bot checks current server ownership, and the authenticated website endpoint
+checks the owner attestation, participant, revision, window, booking lock and active
+lease before saving. Existing history records owner actions and participant
+snapshots. Closed/booked meetings cannot be changed here; use **Reschedule meeting**
+for a booked time. The existing MySQL JSON state stores the change. No migration
+or environment change is needed. Old workers cannot claim meetings with overrides
+during deployment; deploy the website before the bot.
+
+Private invitation pages include the recipient in the shared roster with a **You**
+label and stable numbered markers. Owner entries and ignored times are disclosed.

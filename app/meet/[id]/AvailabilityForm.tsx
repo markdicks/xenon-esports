@@ -5,7 +5,7 @@ import { availabilityDayCount, bookingNotice, futureAvailabilitySlots, minimumAv
 export type AvailabilityFormProps = { id: string; userId: string; token: string; initialSlots: number[]; initialTimezone: string;
   windowStart: number; windowEnd: number; initialResponded: boolean; status: string; scheduledAt: number | null; channelUrl: string | null; serverNow: number; proposedSlots?: number[]; attending?: boolean;
   nearTermAt?: number;
-  sharedParticipants?: { key: string; name: string; own: boolean; responded: boolean; source?: string; waived?: boolean; slots: number[] }[] };
+  sharedParticipants?: { key: string; name: string; own: boolean; responded: boolean; source?: string; ownerMode?: "entered" | "ignored"; waived?: boolean; slots: number[] }[] };
 const subscribe = () => () => {};
 const control = "min-h-11 rounded-md border border-white/15 bg-black/30 px-4 py-2 text-sm text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-ion disabled:opacity-40";
 const dotColors = ["#d8b4fe", "#93c5fd", "#fda4af", "#fcd34d", "#86efac", "#f9a8d4"];
@@ -19,6 +19,7 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
   const [slots, setSlots] = useState(new Set(props.initialSlots));
   const [dayIndex, setDayIndex] = useState(0), [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(props.initialResponded), [error, setError] = useState("");
+  const [ownerEntryReplaced, setOwnerEntryReplaced] = useState(false);
   const [clock, setClock] = useState(props.serverNow);
   const [inspectedAt, setInspectedAt] = useState<number | null>(null);
   const [decision, setDecision] = useState<{ at: number; message: string } | null>(null);
@@ -36,14 +37,16 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
   const now = Math.max(props.serverNow, clock);
   const selected = useMemo(() => futureAvailabilitySlots(Array.from(slots), props.windowStart, props.windowEnd, now), [slots, props.windowStart, props.windowEnd, now]);
   const selectedDays = availabilityDayCount(selected, timezone);
-  const others = useMemo(() => (props.sharedParticipants || []).filter((person) => !person.own), [props.sharedParticipants]);
+  const participants = useMemo(() => (props.sharedParticipants || []).map((person, index) => ({ ...person, index })), [props.sharedParticipants]);
+  const viewer = participants.find((person) => person.own);
+  const others = useMemo(() => participants.filter((person) => !person.own), [participants]);
   const availableByTime = useMemo(() => {
     const times = new Map<number, { name: string; index: number }[]>();
-    others.forEach((person, index) => {
+    others.forEach((person) => {
       if (!person.responded || person.waived) return;
       for (const at of person.slots) {
         const row = times.get(at) || [];
-        row.push({ name: person.name, index });
+        row.push({ name: person.name, index: person.index });
         times.set(at, row);
       }
     });
@@ -101,7 +104,7 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
         anchor.current = { serverNow: result.serverNow, measuredAt: performance.now() }; setClock(result.serverNow);
       }
       if (!response.ok) throw new Error(result.error || "Could not save availability");
-      setSlots(new Set(result.slots ?? future)); setSaved(true);
+      setSlots(new Set(result.slots ?? future)); setSaved(true); setOwnerEntryReplaced(true);
     } catch (err) { setError(err instanceof Error ? err.message : "Could not save availability"); }
     finally { setBusy(false); }
   }
@@ -114,8 +117,11 @@ export function AvailabilityForm(props: AvailabilityFormProps) {
           <button disabled={busy} className={control} onClick={() => decide(false)}>Find a later time</button></div>
       </section> : null}
     <p className="mb-5 text-sm text-steel">Availability is visible to meeting participants and authorised staff.</p>
+    {viewer && <p className="mb-4 text-sm text-steel">Responding as <strong className="text-ion">{viewer.name} (You)</strong>. Use the checkboxes to enter your availability.</p>}
+    {viewer?.ownerMode === "ignored" && <p className="mb-4 text-sm text-ion">The server owner has ignored your availability constraints for this meeting. You are still expected to attend the booked time. You can save times here, but they will only be used for matching if the owner removes this override.</p>}
+    {viewer?.ownerMode === "entered" && !ownerEntryReplaced && <p className="mb-4 text-sm text-ion">The server owner entered these times for you. You can replace them by submitting your own availability before booking.</p>}
     {props.sharedParticipants?.some((person) => person.own && person.waived) && <p className="mb-4 text-sm text-steel">Your reply was not required after 48 hours. You can still update your times before booking.</p>}
-    <ul aria-label="Participant availability legend" className="mb-5 flex flex-wrap gap-3 text-xs text-steel">{others.map((person, index) => <li key={person.key} className="flex min-w-0 items-start gap-2 border-b border-white/15 pb-2"><PersonDot index={index} /><span className="min-w-0 break-all"><strong className="text-white">{person.name}</strong>: {person.waived ? "Not required after 48 hours" : person.responded ? person.source === "standing" ? "Weekly availability" : "Replied" : "Awaiting reply"}</span></li>)}</ul>
+    <ul aria-label="Participant availability legend" className="mb-5 flex flex-wrap gap-3 text-xs text-steel">{participants.map((person) => <li key={person.key} className={`flex min-w-0 items-start gap-2 border-b pb-2 ${person.own ? "border-ion/50" : "border-white/15"}`}><PersonDot index={person.index} /><span className="min-w-0 break-all"><strong className={person.own ? "text-ion" : "text-white"}>{person.name}{person.own ? " (You)" : ""}</strong>: {person.ownerMode === "ignored" ? "Times ignored by owner; still attending" : person.ownerMode === "entered" && (!person.own || !ownerEntryReplaced) ? "Owner-entered times" : person.own && saved ? slots.size ? "Availability saved" : "No suitable times" : person.own && slots.size ? "Unsaved selections" : person.waived ? "Not required after 48 hours" : person.responded ? person.source === "standing" ? "Weekly availability" : "Replied" : "Awaiting reply"}</span></li>)}</ul>
     <div className="mb-5 flex flex-wrap gap-4 text-xs"><span className="text-ion">Your selection</span><span className="text-purple-300">Others available</span><span className="text-lime-300">Shared selection</span></div>
     <label htmlFor="meeting-timezone" className="block text-sm font-semibold text-white">Timezone</label><select id="meeting-timezone" value={timezone} disabled={busy} onChange={(event) => { setTimezone(event.target.value); setDayIndex(0); setSaved(false); }} className={`${control} mt-2 w-full`}>
       {timezones.map((zone) => <option key={zone} value={zone}>{zone.replaceAll("_", " ")}</option>)}

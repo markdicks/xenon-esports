@@ -228,7 +228,7 @@ export async function createFollowupMeeting(input: { id: string; guildId: string
     const start = followupWindowStart(meeting.scheduledAt!, priorApplicant.timezone, now), end = start + 14 * 86400000;
     const carry = (userId: string, kind: "applicant" | "manager") => {
       const prior = meeting.participants.find((person) => person.userId === userId);
-      const slots = prior?.responded && !prior.availabilityWaivedAt ? futureAvailabilitySlots(prior.slots, start, end, now) : [];
+      const slots = prior?.responded && !prior.availabilityWaivedAt && !prior.availabilityOverride ? futureAvailabilitySlots(prior.slots, start, end, now) : [];
       return { userId, kind, slots, responded: slots.length > 0, timezone: prior?.timezone, source: prior?.source };
     };
     const child = meetingStateSchema.parse({ ...meeting, id: randomBytes(12).toString("hex"), roundNumber: rounds[0].round_number + 1,

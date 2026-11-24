@@ -84,7 +84,7 @@ export async function availabilityOverview(guildId: string, userIds: string[], w
   });
 }
 export async function applyStandingAvailability(state: MeetingState) {
-  const people = state.participants.filter((row) => (row.kind !== "applicant" || state.internal) && !row.availabilityWaivedAt && (!row.responded || row.source === "standing"));
+  const people = state.participants.filter((row) => (row.kind !== "applicant" || state.internal) && !row.availabilityOverride && !row.availabilityWaivedAt && (!row.responded || row.source === "standing"));
   if (!people.length) return;
   let profiles: RowDataPacket[];
   try { [profiles] = await getDbPool().execute<RowDataPacket[]>(`SELECT user_id, timezone, weekly_slots FROM discord_staff_availability
@@ -202,10 +202,10 @@ export async function portalMutate(id: string, guildId: string, allowed: string[
     const now = Date.now(), freshWindow = action === "reopen" || state.windowEnd <= now;
     if (freshWindow) {
       state.windowStart = Math.max(state.windowStart, Math.ceil((now + 7200000) / slotLength) * slotLength); state.windowEnd = state.windowStart + 14 * 86400000;
-      for (const person of state.participants) { person.slots = []; person.responded = false; person.source = "meeting"; delete person.invitation; person.resendGeneration++; }
+      for (const person of state.participants) { person.slots = []; person.responded = false; person.source = "meeting"; delete person.availabilityOverride; delete person.invitation; person.resendGeneration++; }
     }
     const applicant = state.participants.find((person) => person.kind === "applicant");
-    const ask = action === "reask" ? state.participants.filter((person) => freshWindow || !person.responded || state.status === "no_match" || !person.slots.some((slot) => slot >= now + 7200000)) : [applicant].filter((person) => person != null);
+    const ask = action === "reask" ? state.participants.filter((person) => freshWindow || (!person.availabilityOverride && (!person.responded || state.status === "no_match" || !person.slots.some((slot) => slot >= now + 7200000)))) : [applicant].filter((person): person is MeetingState["participants"][number] => person != null && !person.availabilityOverride);
     for (const person of ask) { person.resendRequested = true; person.resendGeneration++; person.responded = false; }
     for (const person of state.participants) if (freshWindow || ask.includes(person)) {
       delete person.availabilityRequestedAt; delete person.reminderSentAt; delete person.reminderFailedAt; delete person.availabilityWaivedAt;
@@ -255,6 +255,7 @@ export async function portalCorrectDiscord(id: string, guildId: string, allowed:
   state.windowStart = Math.max(state.windowStart, Math.ceil((Date.now() + 7200000) / slotLength) * slotLength); state.windowEnd = state.windowStart + 14 * 86400000;
   for (const person of state.participants) {
     person.slots = []; person.responded = false; person.source = "meeting"; person.resendGeneration++;
+    delete person.availabilityOverride;
     delete person.invitation; delete person.outcome; delete person.noMatchNotice; delete person.deliveryFailure;
     delete person.availabilityRequestedAt; delete person.reminderSentAt; delete person.reminderFailedAt; delete person.availabilityWaivedAt; delete person.waiverDmAt; delete person.waiverStaffAt;
   }

@@ -63,11 +63,12 @@ export async function createInternalMeeting(request: z.input<typeof meetingReque
   }
   return { id, reference };
 }
-export async function claimMeetings(guildId: string, supportsReschedule = false) {
+export async function claimMeetings(guildId: string, supportsReschedule = false, supportsAvailabilityControl = false) {
   const pool = getDbPool();
   const [rows] = await pool.execute<MeetingRow[]>(`SELECT id, revision, state FROM discord_meetings
     WHERE guild_id = ? AND finished_at IS NULL AND next_attempt_at <= NOW()
       ${supportsReschedule ? "" : "AND JSON_EXTRACT(state, '$.reschedule') IS NULL"}
+      ${supportsAvailabilityControl ? "" : "AND JSON_EXTRACT(state, '$.availabilityControlVersion') IS NULL"}
       AND (COALESCE(JSON_UNQUOTE(JSON_EXTRACT(state, '$.retryPaused')), 'false') <> 'true'
         OR JSON_UNQUOTE(JSON_EXTRACT(state, '$.manualRetryRequested')) = 'true')
       AND (leased_until IS NULL OR leased_until <= NOW()) ORDER BY next_attempt_at, id LIMIT 5`, [guildId]);
@@ -84,7 +85,7 @@ export async function claimMeetings(guildId: string, supportsReschedule = false)
         const { applyStandingAvailability } = await import("@/lib/meeting-portal");
         await applyStandingAvailability(state);
         const applicant = state.participants.find((person) => person.kind === "applicant");
-        if (!state.internal && !state.parentMeetingId && !state.retryPaused && state.windowEnd > Date.now() && applicant?.responded && applicant.slots.length
+        if (!state.internal && !state.parentMeetingId && !state.retryPaused && state.windowEnd > Date.now() && applicant?.responded && !applicant.availabilityOverride && applicant.slots.length
           && availabilityDayCount(applicant.slots, applicant.timezone) < minimumAvailabilityDays) {
           applicant.responded = false; applicant.resendRequested = true; applicant.resendGeneration++;
         }
@@ -268,7 +269,7 @@ export async function decideNearTermMeeting(id: string, userId: string, at: numb
   const state = current.state;
   if (state.status === "scheduled" || ["accepted", "rejected", "closed"].includes(state.workflowStatus)
     || state.nearTerm?.at !== at || state.nearTerm.confirmed || at < Date.now() + bookingNotice
-    || !state.participants.find((person) => person.userId === userId)?.slots.includes(at)) return "stale";
+    || !state.participants.some((person) => person.userId === userId && (person.availabilityOverride?.mode === "ignored" || person.slots.includes(at)))) return "stale";
   if (confirm) state.nearTerm.confirmed = true;
   else { state.notBefore = Math.max(at + slotLength, Date.now() + 3 * hour + 1); state.nearTerm = null; }
   state.lastAction = { actorId: userId, kind: confirm ? "near_term_confirmed" : "near_term_skipped", at: Date.now() };
@@ -334,6 +335,9 @@ export async function saveAvailability(id: string, userId: string, slots: number
     if (slots.length > 0 && selected.length < minimumAvailabilitySlots) return "too_few";
     if (selected.length && availabilityDayCount(selected, timezone) < minimumAvailabilityDays) return "too_few_days";
     person.slots = selected; person.responded = true; person.timezone = timezone;
+    // A person's own reply replaces entered times. An explicit owner ignore remains until restored.
+    if (person.availabilityOverride?.mode === "entered") delete person.availabilityOverride;
+    else if (person.availabilityOverride) delete person.availabilityOverride.entered;
     delete person.availabilityWaivedAt;
     person.source = "meeting"; person.respondedAt = Date.now();
     state.lastAction = { actorId: userId, kind: "availability_submitted", at: Date.now() };

@@ -44,7 +44,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         nearTermAt: state.internal && person.kind === "applicant" && !state.nearTerm?.confirmed ? state.nearTerm?.at : undefined,
         sharedParticipants: state.participants.map((row, index) => ({ key: row.kind === "applicant" ? "applicant" : `manager-${index}`,
           name: row.displayName || (row.kind === "applicant" ? state.internal ? "Requester" : "Applicant" : `Staff ${index + 1}`), own: row.userId === person.userId,
-          responded: row.responded, source: row.source, waived: Boolean(row.availabilityWaivedAt), slots: row.slots })),
+          responded: row.responded, source: row.source, ownerMode: row.availabilityOverride?.mode, waived: Boolean(row.availabilityWaivedAt), slots: row.slots })),
         channelUrl: state.channelId && state.attendeeIds.includes(person.userId) ? `https://discord.com/channels/${state.guildId}/${state.channelId}` : null } });
     }
     const result = await saveAvailability(id, body.data.userId, body.data.slots, body.data.timezone);

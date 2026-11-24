@@ -5,6 +5,7 @@ import { discordId, meetingId, meetingStateSchema } from "@/lib/meeting-contract
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const supportsReschedule = (request: Request) => (request.headers.get("x-xenon-meeting-capabilities") || "").split(",").map((v) => v.trim()).includes("reschedule-v1");
+const supportsAvailabilityControl = (request: Request) => (request.headers.get("x-xenon-meeting-capabilities") || "").split(",").map((v) => v.trim()).includes("availability-control-v1");
 export async function GET(request: Request) {
   if (!authorizeBot(request)) return json({ error: "Unauthorized" }, 401);
   const guild = discordId.safeParse(new URL(request.url).searchParams.get("guildId"));
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
     if (view === "backfill") return json({ candidates: await listHistoricalMeetingCandidates(after) });
     if (view === "attention") return json({ meetings: await listMeetingAttention(guild.data) });
     if (view === "reminders") return json({ meetings: await listMeetingReminders(guild.data) });
-    return json({ meetings: view === "paused" ? await listPausedMeetings(guild.data) : await claimMeetings(guild.data, supportsReschedule(request)) });
+    return json({ meetings: view === "paused" ? await listPausedMeetings(guild.data) : await claimMeetings(guild.data, supportsReschedule(request), supportsAvailabilityControl(request)) });
   }
   catch (error) { console.error("Meeting queue unavailable", error); return json({ error: "Meeting storage unavailable. Check the website runtime log." }, 503); }
 }
@@ -49,6 +50,7 @@ export async function POST(request: Request) {
       return result === "queued" ? json({ success: true }) : json({ error: result === "missing" ? "Meeting not found" : result === "closed" ? "This invitation is not paused or has expired" : "Meeting changed. Reload before retrying" }, result === "missing" ? 404 : 409);
     }
     if (body.data.state.reschedule && !supportsReschedule(request)) return json({ error: "This meeting requires the reschedule-capable bot update." }, 409);
+    if (body.data.state.availabilityControlVersion && !supportsAvailabilityControl(request)) return json({ error: "This meeting requires the availability-control bot update." }, 409);
     const revision = await saveMeetingJob(body.data);
     return revision ? json({ revision }) : json({ error: "Meeting changed or lease expired" }, 409);
   } catch (error) { console.error("Could not save meeting", error); return json({ error: "Meeting storage unavailable. Check the website runtime log." }, 503); }

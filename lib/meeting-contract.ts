@@ -53,6 +53,7 @@ export const meetingStateSchema = z.object({
   roundNumber: z.number().int().min(1).max(100).default(1),
   parentMeetingId: meetingId.optional(),
   staffRoleIds: z.array(discordId).max(100).optional(),
+  availabilityControlVersion: z.literal(1).optional(),
   reschedule: z.object({ version: z.number().int().min(1).max(100), fromAt: z.number().int().positive(), at: z.number().int().positive(),
     actorId: discordId, reason: z.string().trim().max(500), searchSince: z.number().int().positive(), chatUpdated: z.boolean().default(false),
     cleanup: z.array(z.object({ userId: discordId, receipt: message.optional(), channelId: discordId.optional(), before: discordId.optional(), done: z.boolean().default(false) }).strict()).max(101),
@@ -92,6 +93,8 @@ export const meetingStateSchema = z.object({
     slots: z.array(z.number().int().positive()).max(672), responded: z.boolean(),
     timezone: z.string().max(100).default("UTC"),
     displayName: z.string().max(120).optional(), source: z.enum(["meeting", "standing"]).default("meeting"),
+    availabilityOverride: z.object({ mode: z.enum(["entered", "ignored"]), actorId: discordId, at: z.number().int().positive(),
+      entered: z.object({ actorId: discordId, at: z.number().int().positive() }).strict().optional() }).strict().optional(),
     sendCount: z.number().int().min(0).default(0), lastSentAt: z.number().int().optional(), respondedAt: z.number().int().optional(),
     availabilityRequestedAt: z.number().int().positive().optional(), reminderSentAt: z.number().int().positive().optional(), reminderFailedAt: z.number().int().positive().optional(),
     availabilityWaivedAt: z.number().int().positive().optional(), waiverDmAt: z.number().int().positive().optional(), waiverStaffAt: z.number().int().positive().optional(),
@@ -123,21 +126,26 @@ export const meetingStateSchema = z.object({
 export type MeetingState = z.infer<typeof meetingStateSchema>;
 
 export type BusyMeeting = { scheduledAt: number; attendeeIds: string[] };
+export const ignoresAvailability = (person: MeetingState["participants"][number]) => person.availabilityOverride?.mode === "ignored";
 export function readyToMatch(state: MeetingState) {
-  return Boolean(state.applicantId) && state.participants.every((person) => person.responded || (person.kind === "manager" && person.availabilityWaivedAt));
+  return Boolean(state.applicantId) && state.participants.every((person) => ignoresAvailability(person) || person.responded || (person.kind === "manager" && person.availabilityWaivedAt));
 }
 export function matchingSlot(state: MeetingState, now = Date.now(), busy: BusyMeeting[] = []) {
   const applicant = state.participants.find((row) => row.kind === "applicant");
   const managers = state.participants.filter((row) => row.kind === "manager" && !row.availabilityWaivedAt);
   const guests = state.participants.filter((row) => row.kind === "guest");
-  if (!applicant?.responded || !readyToMatch(state) || !managers.length) return null;
+  if (!applicant || !readyToMatch(state) || !managers.length) return null;
   const required = Math.ceil(managers.length * 2 / 3);
   const available = (userId: string, slot: number) => !busy.some((meeting) => meeting.attendeeIds.includes(userId)
     && slot < meeting.scheduledAt + slotLength && meeting.scheduledAt < slot + slotLength);
-  for (const slot of Array.from(new Set(applicant.slots)).sort((a, b) => a - b)) {
-    if (slot < Math.max(now + bookingNotice, state.notBefore ?? 0) || !available(applicant.userId, slot)
-      || guests.some((person) => !person.slots.includes(slot) || !available(person.userId, slot))) continue;
-    const attending = managers.filter((row) => row.slots.includes(slot) && available(row.userId, slot));
+  // If the requester's times are ignored, search the window against the remaining constraints.
+  const candidates = ignoresAvailability(applicant)
+    ? Array.from({ length: 672 }, (_, i) => state.windowStart + i * slotLength) : applicant.slots;
+  for (const slot of Array.from(new Set(candidates)).sort((a, b) => a - b)) {
+    if (slot < Math.max(now + bookingNotice, state.notBefore ?? 0) || slot >= state.windowEnd || !available(applicant.userId, slot)
+      || guests.some((person) => (!ignoresAvailability(person) && !person.slots.includes(slot)) || !available(person.userId, slot))
+      || managers.some((person) => ignoresAvailability(person) && !available(person.userId, slot))) continue;
+    const attending = managers.filter((row) => (ignoresAvailability(row) || row.slots.includes(slot)) && available(row.userId, slot));
     if (attending.length >= required) return { at: slot, attendeeIds: [applicant.userId, ...attending.map((row) => row.userId), ...guests.map((person) => person.userId)] };
   }
   return null;
@@ -156,8 +164,8 @@ export function dueMeetingReminder(state: MeetingState, bookedAt: number, now: n
 }
 
 export function meetingFollowUp(state: MeetingState, submittedAt: number, now = Date.now()) {
-  const waitingForApplicant = !state.applicantId || !state.participants.some((person) => person.kind === "applicant" && person.responded);
-  const waitingForManagers = state.participants.filter((person) => person.kind !== "applicant" && !person.responded && !person.availabilityWaivedAt).length;
+  const waitingForApplicant = !state.applicantId || !state.participants.some((person) => person.kind === "applicant" && (person.responded || ignoresAvailability(person)));
+  const waitingForManagers = state.participants.filter((person) => person.kind !== "applicant" && !person.responded && !person.availabilityWaivedAt && !ignoresAvailability(person)).length;
   const waiting = waitingForApplicant || waitingForManagers > 0;
   const active = state.status !== "scheduled" && !["closed", "rejected", "accepted"].includes(state.workflowStatus);
   const ageDays = Math.max(0, Math.floor((now - (state.attentionSince ?? submittedAt)) / (24 * hour)));
