@@ -54,6 +54,7 @@ export const meetingStateSchema = z.object({
   parentMeetingId: meetingId.optional(),
   staffRoleIds: z.array(discordId).max(100).optional(),
   availabilityControlVersion: z.literal(1).optional(),
+  ownerScheduled: z.object({ actorId: discordId, at: z.number().int().positive() }).strict().optional(),
   reschedule: z.object({ version: z.number().int().min(1).max(100), fromAt: z.number().int().positive(), at: z.number().int().positive(),
     actorId: discordId, reason: z.string().trim().max(500), searchSince: z.number().int().positive(), chatUpdated: z.boolean().default(false),
     cleanup: z.array(z.object({ userId: discordId, receipt: message.optional(), channelId: discordId.optional(), before: discordId.optional(), done: z.boolean().default(false) }).strict()).max(101),

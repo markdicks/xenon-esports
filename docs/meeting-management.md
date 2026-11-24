@@ -124,3 +124,11 @@ during deployment; deploy the website before the bot.
 
 Private invitation pages include the recipient in the shared roster with a **You**
 label and stable numbered markers. Owner entries and ignored times are disclosed.
+
+For an immediate booking, the owner can instead choose **Set exact time · owner
+override** on any active meeting. This books every participant at a future time
+within 90 days, bypassing availability, missing replies, quorum, clashes and the
+normal two-hour notice. It works before the first booking and for an existing
+booking. Existing bookings retain their channel and use the reschedule DM cleanup
+and replacement flow. Closed meetings, stale edits, active worker leases and
+post-meeting activity remain protected. The action is recorded in meeting history.

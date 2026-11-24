@@ -29,6 +29,34 @@ test("staff rescheduling atomically keeps the meeting/channel, adds guests and r
   assert.deepEqual(s.reminders, {}); assert.equal(s.completed, false); assert.equal(s.reschedule.fromAt, at); assert.equal(s.reschedule.cleanup.length, 2);
   assert.equal(s.reschedule.cleanup[0].receipt.messageId, old.participants[0].outcome.messageId); assert.ok(!s.participants[0].outcome); assert.notEqual(f.data().revision, revision);
 });
+test("owner can book an exact imminent time without replies, quorum, a live window or clash checks, including every participant", async () => {
+  const f = fixture(), s = f.data().state, scheduledAt = Date.now() + 12 * 60000 + 123;
+  s.status = "no_match"; s.scheduledAt = null; s.channelId = null; s.announcementId = null; s.attendeeIds = []; s.completed = true;
+  s.participants.forEach((p) => { p.responded = false; p.slots = []; p.availabilityWaivedAt = Date.now(); });
+  s.windowStart = at - 30 * 86400000; s.windowEnd = s.windowStart + 14 * 86400000;
+  f.busy([{ ...s, status: "scheduled", id: "b".repeat(24), scheduledAt, attendeeIds: [id(2)] }]);
+  await f.api.rescheduleMeeting({ ...f.input, serverOwner: true, ownerOverride: true, scheduledAt });
+  const saved = f.data().state;
+  assert.equal(saved.scheduledAt, scheduledAt); assert.equal(saved.status, "scheduled"); assert.equal(saved.workflowStatus, "meeting");
+  assert.deepEqual(saved.attendeeIds, [id(2), id(3)]); assert.equal(saved.reschedule, undefined);
+  assert.ok(saved.participants.every((p) => !p.availabilityWaivedAt)); assert.equal(saved.completed, false);
+  assert.equal(saved.ownerScheduled.actorId, f.input.actorId); assert.equal(saved.lastAction.kind, "owner_meeting_time_set");
+});
+test("owner exact-time rescheduling keeps cleanup; non-owners, stale edits and closed meetings remain rejected", async () => {
+  const f = fixture(); f.data().state.participants.push({ ...f.data().state.participants[1], userId: id(4), outcome: undefined });
+  await f.api.rescheduleMeeting({ ...f.input, serverOwner: true, ownerOverride: true });
+  assert.equal(f.data().state.reschedule.fromAt, at); assert.equal(f.data().state.reschedule.cleanup.length, 2);
+  assert.ok(f.data().state.attendeeIds.includes(id(4))); assert.ok(f.data().state.participants[2].addedAt, "newly included attendees need private channel access");
+  for (const mode of ["non-owner", "stale", "closed", "lease", "past"]) {
+    const f = fixture(), input = { ...f.input, serverOwner: true, ownerOverride: true };
+    if (mode === "non-owner") input.serverOwner = false;
+    if (mode === "stale") input.revision = "stale";
+    if (mode === "closed") f.data().state.workflowStatus = "closed";
+    if (mode === "lease") f.data().leased = 1;
+    if (mode === "past") input.scheduledAt = Date.now() - 1;
+    await assert.rejects(f.api.rescheduleMeeting(input)); assert.equal(f.data().state.scheduledAt, at);
+  }
+});
 test("unauthorised, stale, leased, closed and conflicting reschedules cannot partly add participants", async () => {
   for (const change of ["permission", "revision", "lease", "closed", "conflict", "outcome", "cancellation"]) {
     const f = fixture(), input = { ...f.input, userIds: [id(4)] };
