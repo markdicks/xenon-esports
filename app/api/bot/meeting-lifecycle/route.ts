@@ -2,12 +2,15 @@ import { z } from "zod";
 import { authorizeBot, meetingJson as json, readMeetingJson } from "@/lib/meeting-api";
 import { discordId, meetingId } from "@/lib/meeting-contract";
 import { confirmMeetingCancellation, finishInternalMeeting, listMeetingLifecycle, readMeetingLifecycle,
-  requestMeetingCancellation, saveLifecycleRecord } from "@/lib/meeting-lifecycle";
+  requestMeetingCancellation, saveLifecycleRecord, dueMeetingAttendance, claimMeetingAttendance, completeMeetingAttendance } from "@/lib/meeting-lifecycle";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const identity = { id: meetingId, guildId: discordId };
 const staff = { ...identity, actorId: discordId, staff: z.literal(true), revision: z.string().uuid() };
 const schema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("attendance-jobs"), guildId: discordId }).strict(),
+  z.object({ action: z.literal("attendance-claim"), ...identity, scheduledAt: z.number().int().positive() }).strict(),
+  z.object({ action: z.literal("attendance-complete"), ...identity, scheduledAt: z.number().int().positive(), leaseToken: z.string().uuid(), receipt: z.object({ channelId: discordId, messageId: discordId }).strict().optional() }).strict(),
   z.object({ action: z.literal("list"), guildId: discordId, after: meetingId.nullable().default(null), participantId: discordId.optional() }).strict(),
   z.object({ action: z.literal("read-channel"), guildId: discordId, channelId: discordId }).strict(),
   z.object({ action: z.literal("request-cancel"), ...staff, reason: z.string().trim().min(1).max(500) }).strict(),
@@ -23,6 +26,9 @@ export async function POST(request: Request) {
   const input = body.data;
   try {
     switch (input.action) {
+      case "attendance-jobs": return json(await dueMeetingAttendance(input.guildId));
+      case "attendance-claim": return json(await claimMeetingAttendance(input));
+      case "attendance-complete": return json(await completeMeetingAttendance(input));
       case "list": return json(await listMeetingLifecycle(input.guildId, input.after, input.participantId));
       case "read-channel": return json(await readMeetingLifecycle(input.guildId, input.channelId));
       case "request-cancel": return json(await requestMeetingCancellation(input));

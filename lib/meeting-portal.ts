@@ -3,6 +3,7 @@ import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { z } from "zod";
 import { getDbPool } from "@/lib/db";
 import { getMeeting } from "@/lib/meetings";
+import { meetingNoteList } from "@/lib/meeting-notes";
 import { meetingFollowUp, meetingStateSchema, slotLength, type MeetingState } from "@/lib/meeting-contract";
 import { outcomeSchema } from "@/lib/meeting-outcome-contract";
 import { interestRoutes, selectedInterestRoutes } from "@/data/interest-routing";
@@ -181,7 +182,9 @@ export async function portalDetail(id: string, guildId: string, allowed: string[
       outcomeEvents = events.map((event) => ({ actorId: event.actor_id, kind: event.event_type, at: new Date(event.created_at).toISOString() }));
     }
   } catch (error) { if ((error as { code?: string }).code !== "ER_NO_SUCH_TABLE") throw error; }
-  return { ...current, outcome, outcomeEvents, source: { type: source.type, createdAt: new Date(source.created_at).toISOString() }, answers: answers[0] || {},
+  let notes: Awaited<ReturnType<typeof meetingNoteList>> = [], notesAvailable = true;
+  try { notes = await meetingNoteList(id, guildId); } catch { notesAvailable = false; }
+  return { ...current, outcome, outcomeEvents, notes, notesAvailable, source: { type: source.type, createdAt: new Date(source.created_at).toISOString() }, answers: answers[0] || {},
     health: meetingFollowUp(current.state, new Date(source.created_at).getTime()),
     history: history.slice(0, 25).map((event) => ({ id: String(event.id), actorId: event.actor_id, kind: event.event_type,
       at: new Date(event.created_at).toISOString(), detail: (() => {

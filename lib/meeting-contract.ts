@@ -66,6 +66,7 @@ export const meetingStateSchema = z.object({
   }).strict().optional(),
   lifecycle: z.object({
     finishedAt: z.number().int().positive().optional(),
+    attendance: z.object({ scheduledAt: z.number().int().positive(), leaseToken: z.string().uuid(), leaseUntil: z.number().int().positive(), checkedAt: z.number().int().positive().optional() }).strict().optional(),
     cancellation: z.object({
       token: z.string().uuid(), requestedBy: discordId, requestedAt: z.number().int().positive(),
       expiresAt: z.number().int().positive(), reason: z.string().trim().min(1).max(500),

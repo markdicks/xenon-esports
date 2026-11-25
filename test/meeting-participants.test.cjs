@@ -10,6 +10,7 @@ function fixture() {
   const queries = []; let busy = [], failSave = false;
   async function execute(target, sql, params = []) {
     queries.push(sql);
+    if (sql.includes("discord_meeting_notes")) return sql.startsWith("SELECT") ? [[]] : [{ affectedRows: 0 }];
     if (sql.includes("GET_LOCK")) return [[{ acquired: 1 }]];
     if (sql.includes("RELEASE_LOCK")) return [[{ released: 1 }]];
     if (sql.includes("LEFT JOIN")) return [[{ ...target, created_at: new Date(), outcome_state: {} }]];

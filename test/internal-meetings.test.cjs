@@ -67,7 +67,7 @@ test("internal requests in the portal are visible to participants or explicit ad
   assert.equal(await detail(user(4)), null); assert.equal(calls.length, 0);
   assert.equal((await detail(user(3))).answers.topic, "Practice schedule");
   assert.equal((await detail(user(4), true)).source.type, "internal");
-  assert.ok(calls.every(([sql]) => sql.includes("discord_meeting_history")));
+  assert.ok(calls.every(([sql]) => sql.includes("discord_meeting_history") || sql.includes("discord_meeting_notes")));
   await portal.portalList(input.guildId, [], null, null, "", { actorId: user(2), departments: [] });
   assert.match(calls.at(-1)[0], /JSON_OBJECT\('userId', \?\)/);
   assert.deepEqual(calls.at(-1)[1].slice(-2), [false, user(2)]);

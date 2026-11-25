@@ -46,6 +46,34 @@ test("cancellation stays pending until the other person confirms and retains bot
   assert.equal(f.data().state.workflowStatus, "closed"); assert.equal(f.data().state.lastAction.kind, "meeting_cancelled");
   await f.confirm(); assert.deepEqual(f.data().state.lifecycle.cancellation, cancellation);
 });
+test("attendance is due only after two minutes, serialized by a lease and completed once per booked time", async () => {
+  const f = fixture(); f.data().state.scheduledAt = Date.now() - 120100;
+  assert.equal((await f.api.dueMeetingAttendance(id(1))).meetings.length, 1);
+  const input = { ...f.identity, scheduledAt: f.data().state.scheduledAt };
+  const results = await Promise.allSettled([f.api.claimMeetingAttendance(input), f.api.claimMeetingAttendance(input)]);
+  assert.equal(results.filter((r) => r.status === "fulfilled").length, 1);
+  const leaseToken = f.data().state.lifecycle.attendance.leaseToken;
+  await f.api.completeMeetingAttendance({ ...input, leaseToken });
+  assert.equal((await f.api.dueMeetingAttendance(id(1))).meetings.length, 0);
+  f.data().state.scheduledAt -= 1000;
+  assert.equal((await f.api.dueMeetingAttendance(id(1))).meetings.length, 1);
+  await assert.rejects(f.api.completeMeetingAttendance({ ...input, leaseToken }), /changed/);
+  f.data().state.workflowStatus = "closed";
+  assert.equal((await f.api.dueMeetingAttendance(id(1))).meetings.length, 0);
+});
+test("future, finished and old meetings cannot claim attendance and expired leases cannot complete", async () => {
+  const f = fixture();
+  await assert.rejects(f.api.claimMeetingAttendance({ ...f.identity, scheduledAt: f.data().state.scheduledAt }), /no longer due/);
+  f.data().state.scheduledAt = Date.now() + 1000;
+  await assert.rejects(f.api.claimMeetingAttendance({ ...f.identity, scheduledAt: f.data().state.scheduledAt }), /no longer due/);
+  f.data().state.scheduledAt = Date.now() - 120100;
+  const input = { ...f.identity, scheduledAt: f.data().state.scheduledAt };
+  const claimed = await f.api.claimMeetingAttendance(input);
+  f.data().state.lifecycle.attendance.leaseUntil = Date.now() - 1;
+  await assert.rejects(f.api.completeMeetingAttendance({ ...input, leaseToken: claimed.lifecycle.attendance.leaseToken }), /changed/);
+  f.data().state.lifecycle.finishedAt = Date.now();
+  await assert.rejects(f.api.claimMeetingAttendance(input), /no longer due/);
+});
 test("group cancellation requires another staff member, and stale or expired approvals cannot cancel", async (t) => {
   const f = fixture({ people: 3 }); await f.request();
   await assert.rejects(f.confirm(), /Another eligible staff/);
