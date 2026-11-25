@@ -14,8 +14,8 @@ PPP's name, slogan, philosophy and event agreement were supplied by Xenon. Direc
 
 ## Artwork provenance
 
-`public/collaborations/ppp/xenon-ppp-collaboration.webp` is a generated web adaptation of the supplied photographed poster, not an original vector export or an exact recovered brand master. The original export was unavailable. The built-in image generator was used to remove the photographed UI/perspective/moire and adapt the poster's joint crowned XP, PPP and XE marks, charcoal, rose/violet and hanging black ink treatment into a wide banner. It was compressed to WebP without changing its dimensions. Replace it with official artwork when available.
+Current pages use the supplied exports unchanged: `xenon-ppp-banner.png` (1920×396), `xp-collaboration-logo.png`, and `gbv-awareness-poster.png` in `public/collaborations/ppp/`. The earlier generated `xenon-ppp-collaboration.webp` is a legacy asset and is no longer the page artwork.
 
-Prompt specification: adapt the reference into a clean 3:1 digital banner; dark charcoal left 58% for HTML text; right 42% preserves the crowned XP with the PPP and XE marks below; muted violet/rose print grain; a connected irregular black drip fringe; no dates, sponsor claims, new logos, UI, photographed-screen effects, extra headlines or glow/orbs. The negative space is for accessible HTML text rather than text baked into the artwork.
+The collaboration profile, Valorant event and associated brackets share one hero with accessible HTML text over the banner background. Desktop artwork fills the hero and stays aligned to the right to retain the brand marks. On narrower screens the full-width artwork blends into a matching background behind the content, preserving the marks and their proportions. The directory card uses the same combined treatment. The awareness poster remains a full, uncropped image with a full-size viewing link.
 
 All new colours are scoped to collaboration elements or `.collab-event`. Main Xenon navigation, CTAs, forms, database and Discord/interview flows are preserved. No public poll, registration or application needs to be submitted to test the content pages.
