@@ -25,8 +25,12 @@ export const ticketStateSchema = z.object({ id: ticketId, number: z.number().int
   status: z.enum(["creating", "open", "closing", "closed", "reopening", "deleting", "deleted"]), channelId: ticketDiscordId.nullable().default(null),
   controlMessageId: ticketDiscordId.nullable().default(null), categoryId: ticketDiscordId, archiveCategoryId: ticketDiscordId, logChannelId: ticketDiscordId, staffRoleIds: ids.min(1),
   memberIds: ids.default([]), claimedBy: ticketDiscordId.nullable().default(null), reason: z.string().max(500).default(""), changedBy: ticketDiscordId,
+  claimHiddenRoleIds: ids.optional(), openerName: z.string().max(120).optional(), claimantName: z.string().max(120).optional(),
+  presentationVersion: z.literal(2).optional(), activityId: z.string().uuid().optional(),
+  lastAction: z.object({ operation: z.string().max(30), actorId: ticketDiscordId, at: z.number().int().positive() }).strict().optional(),
   transcript: z.object({ channelId: ticketDiscordId, messageId: ticketDiscordId, at: z.number().int().positive() }).nullable().default(null),
-  closeVersion: z.number().int().nonnegative().default(0), exportRequested: z.number().int().positive().nullable().default(null), dirty: z.boolean().default(true), error: z.string().max(200).nullable().default(null) }).strict();
+  closeVersion: z.number().int().nonnegative().default(0), exportRequested: z.number().int().positive().nullable().default(null), dirty: z.boolean().default(true), error: z.string().max(200).nullable().default(null) }).strict()
+  .refine((value) => !value.claimHiddenRoleIds?.some((id) => !value.staffRoleIds.includes(id)), "Claim exclusions must be configured support roles.");
 export type TicketState = z.infer<typeof ticketStateSchema>;
 export function ticketChange(state: TicketState, operation: string, actorId: string, value?: string): TicketState {
   if (!["open", "closed"].includes(state.status)) throw Object.assign(new Error("This ticket is being processed. Try again shortly."), { status: 409 });
@@ -42,5 +46,5 @@ export function ticketChange(state: TicketState, operation: string, actorId: str
     if (value !== state.openerId && !state.memberIds.includes(value)) state.memberIds.push(ticketDiscordId.parse(value));
   } else if (operation === "remove" && state.status === "open" && value) state.memberIds = state.memberIds.filter((id) => id !== value);
   else throw Object.assign(new Error("That action is unavailable for this ticket."), { status: 409 });
-  state.changedBy = actorId; state.dirty = true; state.error = null; return ticketStateSchema.parse(state);
+  state.changedBy = actorId; state.lastAction = { operation, actorId, at: Date.now() }; state.dirty = true; state.error = null; return ticketStateSchema.parse(state);
 }

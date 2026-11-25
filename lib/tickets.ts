@@ -59,7 +59,8 @@ export async function reserveTicket(input: { guildId: string; openerId: string; 
     const id = randomBytes(12).toString("hex"), revision = randomUUID();
     const [result] = await c.execute<ResultSetHeader>("INSERT INTO discord_tickets (id, guild_id, opener_id, active_key, revision, state) VALUES (?, ?, ?, ?, ?, JSON_OBJECT())", [id, input.guildId, input.openerId, activeKey, revision]);
     const ticket = ticketStateSchema.parse({ id, number: Number(result.insertId), guildId: input.guildId, openerId: input.openerId, subject: input.subject, description: input.description,
-      createdAt: Date.now(), status: "creating", categoryId: config.categoryId, archiveCategoryId: config.archiveCategoryId, logChannelId: config.logChannelId, staffRoleIds: config.staffRoleIds, changedBy: input.openerId });
+      createdAt: Date.now(), status: "creating", categoryId: config.categoryId, archiveCategoryId: config.archiveCategoryId, logChannelId: config.logChannelId, staffRoleIds: config.staffRoleIds, changedBy: input.openerId,
+      activityId: revision, lastAction: { operation: "opened", actorId: input.openerId, at: Date.now() } });
     await c.execute("UPDATE discord_tickets SET state = ? WHERE id = ?", [JSON.stringify(ticket), id]); await audit(c, input.guildId, id, input.openerId, "opened"); return { revision, ticket, existing: false };
   });
 }
@@ -69,14 +70,18 @@ export async function changeTicket(input: { guildId: string; id: string; revisio
     if (!rows[0]) fail("Ticket not found.", 404);
     if (rows[0].revision !== input.revision || rows[0].leased) fail("This ticket changed or is being processed. Please retry shortly.");
     const ticket = ticketChange(project(rows[0]).ticket, input.operation, input.actorId, input.value), revision = randomUUID();
+    ticket.activityId = revision;
     const activeKey = ["closed", "deleted", "deleting"].includes(ticket.status) ? null : `${ticket.guildId}:${ticket.openerId}`;
     try { await c.execute("UPDATE discord_tickets SET state = ?, revision = ?, active_key = ?, next_attempt_at = NOW() WHERE id = ?", [JSON.stringify(ticket), revision, activeKey, ticket.id]); }
     catch (error) { if ((error as { code?: string }).code === "ER_DUP_ENTRY") fail("This member already has an open ticket."); throw error; }
     await audit(c, input.guildId, ticket.id, input.actorId, input.operation); return { revision, ticket };
   });
 }
-export async function ticketJobs(guildId: string) {
-  await ensureTicketTables(); const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT id FROM discord_tickets WHERE guild_id = ? AND JSON_UNQUOTE(JSON_EXTRACT(state, '$.dirty')) = 'true' AND next_attempt_at <= NOW() AND (leased_until IS NULL OR leased_until < NOW()) ORDER BY number LIMIT 5`, [guildId]);
+export async function ticketJobs(guildId: string, updatePresentation = false) {
+  await ensureTicketTables(); const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT id FROM discord_tickets WHERE guild_id = ?
+    AND JSON_UNQUOTE(JSON_EXTRACT(state, '$.status')) <> 'deleted'
+    AND (JSON_UNQUOTE(JSON_EXTRACT(state, '$.dirty')) = 'true' ${updatePresentation ? "OR JSON_EXTRACT(state, '$.presentationVersion') IS NULL" : ""})
+    AND next_attempt_at <= NOW() AND (leased_until IS NULL OR leased_until < NOW()) ORDER BY number LIMIT 5`, [guildId]);
   return { ids: rows.map((r) => String(r.id)) };
 }
 export async function leaseTicket(guildId: string, id: string) {
@@ -92,6 +97,9 @@ export async function saveTicketProgress(input: { guildId: string; id: string; l
     if (!rows[0] || rows[0].revision !== input.revision) fail("Ticket worker lease changed.");
     const old = project(rows[0]).ticket, ticket = input.ticket;
     for (const key of ["id", "number", "guildId", "openerId", "createdAt", "subject", "description", "categoryId", "archiveCategoryId", "logChannelId", "staffRoleIds"] as const) if (JSON.stringify(old[key]) !== JSON.stringify(ticket[key])) fail("Immutable ticket fields changed.", 400);
+    for (const key of ["claimedBy", "memberIds", "changedBy", "reason", "lastAction"] as const) if (JSON.stringify(old[key]) !== JSON.stringify(ticket[key])) fail("Ticket action fields changed.", 400);
+    if (old.activityId && old.activityId !== ticket.activityId) fail("Ticket activity changed.", 400);
+    if (old.presentationVersion === 2 && ticket.presentationVersion !== 2) fail("Update the ticket worker before processing this ticket.", 409);
     const revision = randomUUID(), activeKey = ["closed", "deleting", "deleted"].includes(ticket.status) ? null : `${ticket.guildId}:${ticket.openerId}`;
     await c.execute("UPDATE discord_tickets SET state = ?, revision = ?, active_key = ?, lease_token = ?, leased_until = ?, next_attempt_at = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?",
       [JSON.stringify(ticket), revision, activeKey, input.release ? null : input.leaseToken, input.release ? null : new Date(Date.now() + 600000), ticket.error ? 300 : 30, ticket.id]); return { revision };
