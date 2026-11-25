@@ -77,21 +77,22 @@ export async function changeTicket(input: { guildId: string; id: string; revisio
     await audit(c, input.guildId, ticket.id, input.actorId, input.operation); return { revision, ticket };
   });
 }
-export async function ticketJobs(guildId: string, updatePresentation = false) {
+export async function ticketJobs(guildId: string, updatePresentation = false, retryRenames = false) {
   await ensureTicketTables(); const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT id FROM discord_tickets WHERE guild_id = ?
     AND JSON_UNQUOTE(JSON_EXTRACT(state, '$.status')) <> 'deleted'
-    AND (JSON_UNQUOTE(JSON_EXTRACT(state, '$.dirty')) = 'true' ${updatePresentation ? "OR JSON_EXTRACT(state, '$.presentationVersion') IS NULL" : ""})
+    AND (JSON_UNQUOTE(JSON_EXTRACT(state, '$.dirty')) = 'true' ${updatePresentation ? "OR JSON_EXTRACT(state, '$.presentationVersion') IS NULL" : ""}
+      ${retryRenames ? "OR (JSON_UNQUOTE(JSON_EXTRACT(state, '$.renamePending')) = 'true' AND CAST(JSON_UNQUOTE(JSON_EXTRACT(state, '$.renameAfter')) AS UNSIGNED) <= UNIX_TIMESTAMP(NOW()) * 1000)" : ""})
     AND next_attempt_at <= NOW() AND (leased_until IS NULL OR leased_until < NOW()) ORDER BY number LIMIT 5`, [guildId]);
   return { ids: rows.map((r) => String(r.id)) };
 }
-export async function leaseTicket(guildId: string, id: string) {
+export async function leaseTicket(guildId: string, id: string, boundedWorker = false) {
   return transaction(async (c) => {
-    const token = randomUUID(); const [result] = await c.execute<ResultSetHeader>("UPDATE discord_tickets SET lease_token = ?, leased_until = DATE_ADD(NOW(), INTERVAL 10 MINUTE) WHERE guild_id = ? AND id = ? AND (leased_until IS NULL OR leased_until < NOW())", [token, guildId, id]);
+    const token = randomUUID(); const [result] = await c.execute<ResultSetHeader>("UPDATE discord_tickets SET lease_token = ?, leased_until = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE guild_id = ? AND id = ? AND (leased_until IS NULL OR leased_until < NOW())", [token, boundedWorker ? 120 : 600, guildId, id]);
     if (!result.affectedRows) fail("Ticket is already being processed.");
     const [rows] = await c.execute<RowDataPacket[]>("SELECT revision, state FROM discord_tickets WHERE guild_id = ? AND id = ?", [guildId, id]); return { ...project(rows[0]), leaseToken: token };
   });
 }
-export async function saveTicketProgress(input: { guildId: string; id: string; leaseToken: string; revision: string; ticket: TicketState; release: boolean }) {
+export async function saveTicketProgress(input: { guildId: string; id: string; leaseToken: string; revision: string; ticket: TicketState; release: boolean }, boundedWorker = false) {
   return transaction(async (c) => {
     const [rows] = await c.execute<RowDataPacket[]>("SELECT revision, state FROM discord_tickets WHERE id = ? AND guild_id = ? AND lease_token = ? AND leased_until > NOW() FOR UPDATE", [input.id, input.guildId, input.leaseToken]);
     if (!rows[0] || rows[0].revision !== input.revision) fail("Ticket worker lease changed.");
@@ -102,6 +103,6 @@ export async function saveTicketProgress(input: { guildId: string; id: string; l
     if (old.presentationVersion === 2 && ticket.presentationVersion !== 2) fail("Update the ticket worker before processing this ticket.", 409);
     const revision = randomUUID(), activeKey = ["closed", "deleting", "deleted"].includes(ticket.status) ? null : `${ticket.guildId}:${ticket.openerId}`;
     await c.execute("UPDATE discord_tickets SET state = ?, revision = ?, active_key = ?, lease_token = ?, leased_until = ?, next_attempt_at = DATE_ADD(NOW(), INTERVAL ? SECOND) WHERE id = ?",
-      [JSON.stringify(ticket), revision, activeKey, input.release ? null : input.leaseToken, input.release ? null : new Date(Date.now() + 600000), ticket.error ? 300 : 30, ticket.id]); return { revision };
+      [JSON.stringify(ticket), revision, activeKey, input.release ? null : input.leaseToken, input.release ? null : new Date(Date.now() + (boundedWorker ? 120000 : 600000)), ticket.error ? (boundedWorker ? 30 : 300) : 30, ticket.id]); return { revision };
   });
 }

@@ -71,6 +71,29 @@ test("presentation upgrades are queued only for capable workers and never requeu
 test("configuration access policy cannot be edited without a root attestation", async () => {
   const f = fixture(); await assert.rejects(f.api.saveTicketConfig({ guildId: id(1), revision, config: { ...f.config, managerRoleIds: [id(44)] }, actorId: id(3), mayChangeAccess: false }), (e) => e.status === 403);
 });
+
+test("delayed renames survive actions and are queued only for workers that support bounded ticket actions", async () => {
+  const ticket = contract.ticketStateSchema.parse({ ...initial(), dirty: false, renamePending: true, renameAfter: Date.now() + 600000 });
+  const claimed = contract.ticketChange(ticket, "claim", id(3));
+  assert.equal(claimed.renamePending, true); assert.equal(claimed.renameAfter, ticket.renameAfter); assert.equal(claimed.dirty, true);
+  assert.equal(contract.ticketStateSchema.safeParse({ ...ticket, renameAfter: -1 }).success, false);
+  const queries = [], api = load("lib/tickets.ts", { "@/lib/db": { getDbPool: () => ({ execute: async (sql) => { queries.push(sql); return [[]]; } }) } });
+  await api.ticketJobs(id(1), true); assert.doesNotMatch(queries.at(-1), /renamePending/);
+  await api.ticketJobs(id(1), true, true); assert.match(queries.at(-1), /renamePending/); assert.match(queries.at(-1), /renameAfter.*UNIX_TIMESTAMP/);
+});
+
+test("bounded workers use recoverable two-minute leases while older workers keep their existing lease", async () => {
+  const calls = [];
+  const api = load("lib/tickets.ts", { "@/lib/db": { getDbPool: () => ({ execute: async () => [{}], getConnection: async () => ({
+    async beginTransaction() {}, async commit() {}, async rollback() {}, release() {},
+    async execute(sql, params) { calls.push({ sql, params }); return sql.startsWith("UPDATE") ? [{ affectedRows: 1 }] : [[{ state: initial(), revision }]]; },
+  }) }) } });
+  await api.leaseTicket(id(1), ticketId, true);
+  assert.equal(calls.find((call) => call.sql.startsWith("UPDATE")).params[1], 120);
+  calls.length = 0;
+  await api.leaseTicket(id(1), ticketId);
+  assert.equal(calls.find((call) => call.sql.startsWith("UPDATE")).params[1], 600);
+});
 test("the internal ticket API authenticates before storage and rejects generic edits, spoofed fields and database errors", async () => {
   const old = process.env.WEBSITE_BOT_TOKEN; process.env.WEBSITE_BOT_TOKEN = "test-ticket-key";
   const route = load("app/api/bot/tickets/route.ts", { "@/lib/tickets": { ticketConfig: async () => { throw Error("database password should not leak"); } } });

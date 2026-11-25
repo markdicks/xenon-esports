@@ -6,7 +6,7 @@ import { botStorageFailure } from "@/lib/bot-api-errors";
 import { changeTicket, leaseTicket, listTickets, readTicket, reserveTicket, saveTicketConfig, saveTicketProgress, ticketConfig, ticketJobs } from "@/lib/tickets";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-function json(body: unknown, status = 200) { const response = meetingJson(body, status); response.headers.set("X-Xenon-Ticket-Setup", "1"); response.headers.set("X-Xenon-Ticket-Presentation", "2"); return response; }
+function json(body: unknown, status = 200) { const response = meetingJson(body, status); response.headers.set("X-Xenon-Ticket-Setup", "1"); response.headers.set("X-Xenon-Ticket-Presentation", "2"); response.headers.set("X-Xenon-Ticket-Actions", "1"); return response; }
 const identity = { guildId: discordId }, target = { ...identity, id: ticketId }, revision = z.string().uuid();
 const schema = z.discriminatedUnion("action", [
   z.object({ ...identity, action: z.literal("setup-begin"), actorId: discordId, token: ticketSetupToken, draft: ticketSetupDraftSchema }).strict(),
@@ -38,9 +38,9 @@ export async function POST(request: Request) {
       case "read": return json(await readTicket(v.guildId, v.id, v.channelId));
       case "list": return json(await listTickets(v.guildId, v.before));
       case "change": return json(await changeTicket(v));
-      case "jobs": return json(await ticketJobs(v.guildId, request.headers.get("x-xenon-ticket-presentation") === "2"));
-      case "lease": return json(await leaseTicket(v.guildId, v.id));
-      case "progress": return json(await saveTicketProgress(v));
+      case "jobs": return json(await ticketJobs(v.guildId, request.headers.get("x-xenon-ticket-presentation") === "2", request.headers.get("x-xenon-ticket-actions") === "1"));
+      case "lease": return json(await leaseTicket(v.guildId, v.id, request.headers.get("x-xenon-ticket-actions") === "1"));
+      case "progress": return json(await saveTicketProgress(v, request.headers.get("x-xenon-ticket-actions") === "1"));
     }
   } catch (error) {
     const e = error as { status?: number; message?: string }, status = e.status && [400, 403, 404, 409, 429].includes(e.status) ? e.status : 503;

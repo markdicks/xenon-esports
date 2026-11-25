@@ -27,6 +27,7 @@ export const ticketStateSchema = z.object({ id: ticketId, number: z.number().int
   memberIds: ids.default([]), claimedBy: ticketDiscordId.nullable().default(null), reason: z.string().max(500).default(""), changedBy: ticketDiscordId,
   claimHiddenRoleIds: ids.optional(), openerName: z.string().max(120).optional(), claimantName: z.string().max(120).optional(),
   presentationVersion: z.literal(2).optional(), activityId: z.string().uuid().optional(),
+  renamePending: z.boolean().optional(), renameAfter: z.number().int().nonnegative().optional(),
   lastAction: z.object({ operation: z.string().max(30), actorId: ticketDiscordId, at: z.number().int().positive() }).strict().optional(),
   transcript: z.object({ channelId: ticketDiscordId, messageId: ticketDiscordId, at: z.number().int().positive() }).nullable().default(null),
   closeVersion: z.number().int().nonnegative().default(0), exportRequested: z.number().int().positive().nullable().default(null), dirty: z.boolean().default(true), error: z.string().max(200).nullable().default(null) }).strict()
