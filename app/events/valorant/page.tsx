@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 export default async function ValorantEventPage() {
   const event = await publicCommunityEvent(valorantEventId, false), active = event.available && !["closed", "complete"].includes(event.settings.status);
   return <main className="xenon-shell collab-event min-h-screen"><Navbar />
-    <CollaborationHero eyebrow="December 2026 / Valorant / Event collaboration" title="Xenon x PPP" artwork={collaborators[0].artwork} artworkAlt={collaborators[0].artworkAlt}>
+    <CollaborationHero eyebrow="December 2026 / Valorant / Event collaboration" title="Xenon x PPP" artwork={collaborators[0].artwork} artworkAlt={collaborators[0].artworkAlt} logo={collaborators[0].logo}>
       <p className="collaboration-slogan">Two communities. One shared event.</p>
       <p className="collaboration-hero-description">Xenon and Powerpuff Potatoes are bringing the December Valorant community event together.</p>
       <div className="collaboration-actions"><Button href="/events/valorant/vote">{active && event.settings.pollOpen ? "Vote on the format" : "View the format vote"}</Button><Button href="/events/valorant/pre-show" variant="secondary">1v1 pre-show interest</Button></div>

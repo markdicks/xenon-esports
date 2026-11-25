@@ -23,6 +23,8 @@ The five approved general articles publish as part of the website deployment wit
 
 ## Staff controls
 
+Tournament brackets are managed in a third **Brackets** tab. Viewing is unlisted via a direct link only. See [bracket setup, corrections and deployment](tournament-brackets.md).
+
 Use the existing Discord login at the bot website, then Admin > Community events. Access is rechecked server-side for administrators or relevant Competitive, Community, Operations, Staff or interest-notification roles, using the existing role permissions.
 
 The Events tab edits public descriptions, nullable date/time, format, participation, organisers, status and up to five HTTPS links. Dates are entered in the manager's local timezone and displayed publicly in SAST (UTC+2). Closing/completing an event closes its public forms. Changes use a revision check so stale saves cannot silently overwrite another manager.

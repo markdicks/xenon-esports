@@ -5,6 +5,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import { Button } from "@/components/ui/Button";
 import { collaborators } from "@/data/collaborations";
+import { AwarenessBadge } from "@/components/collaborations/AwarenessBadge";
 import { publicCommunityEvents } from "@/lib/community-events";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export default async function CollaborationsPage() {
       <h1 className="mt-4 font-display text-4xl font-black leading-tight text-white sm:text-6xl">Collaborations.</h1>
       <p className="mt-5 max-w-2xl text-lg leading-8 text-steel">Different communities, something shared. Meet the people and organisations we work with, and see the events behind each collaboration.</p>
       <div className="mt-10 divide-y divide-white/10">{collaborators.map((partner) => <article key={partner.slug} className="pb-10">
-        <div className="collaboration-directory-banner"><Image src={partner.artwork} alt="Crowned XP, Powerpuff Potatoes and Xenon collaboration artwork" fill sizes="(max-width: 1280px) 100vw, 1280px" className="object-cover" /><div className="relative z-10"><p className="collaboration-eyebrow">Event collaborator / South Africa</p><h2 className="mt-3 max-w-lg font-display text-3xl font-black leading-tight text-white sm:text-4xl">{partner.name}</h2><p className="mt-3 text-sm text-white/80">{partner.slogan}.</p></div></div>
+        <div className="collaboration-directory-banner"><Image src={partner.artwork} alt={partner.artworkAlt} width={1920} height={396} sizes="(max-width: 1280px) 100vw, 1280px" /><div><p className="collaboration-eyebrow">Event collaborator / South Africa</p><h2 className="mt-3 font-display text-3xl font-black leading-tight text-white sm:text-4xl">{partner.name}</h2><p className="mt-3 text-sm text-white/80">{partner.slogan}.</p><AwarenessBadge partner={partner} /></div></div>
         <div className="grid gap-8 border-b border-white/10 py-7 md:grid-cols-[1fr_1.2fr]"><div><p className="max-w-lg leading-7 text-steel">{partner.focus} Xenon and {partner.shortName} are working together on the Valorant community event.</p><Link className="collaboration-text-link mt-4" href={`/collaborations/${partner.slug}`}>About {partner.shortName}<span aria-hidden="true"> &rarr;</span></Link></div><div><h3 className="text-xs font-bold uppercase text-steel">Events together</h3><ul className="mt-3 divide-y divide-white/10">{partner.events.map((shared) => {
           const current = events.find((event) => event.id === shared.id);
           const status = current?.settings.status === "complete" ? "Completed" : current?.settings.status === "closed" ? "Closed" : current?.settings.status === "announced" ? "Announced" : "In planning";

@@ -11,6 +11,8 @@ export type Collaborator = {
   philosophy: string;
   artwork: string;
   artworkAlt: string;
+  logo: string;
+  awareness?: { poster: string; posterAlt: string; headline: string; message: string };
   socials: { label: string; url: string }[];
   events: { id: EventId; href: string; name: string; contribution: string }[];
 };
@@ -25,8 +27,11 @@ export const collaborators: Collaborator[] = [
     message: "No egos. No rank shaming. Just fun, unserious tournaments, friendly banter, and unforgettable moments. All ranks are welcome.",
     focus: "South African gaming tournaments and community-building.",
     philosophy: "An open, community-first organisation that accommodates different ranks, games, organisations and playstyles.",
-    artwork: "/collaborations/ppp/xenon-ppp-collaboration.webp",
+    artwork: "/collaborations/ppp/xenon-ppp-banner.png",
     artworkAlt: "Crowned XP collaboration mark, Powerpuff Potatoes tournament logo and Xenon XE logo on violet and rose artwork with black ink drips",
+    logo: "/collaborations/ppp/xp-collaboration-logo.png",
+    awareness: { poster: "/collaborations/ppp/gbv-awareness-poster.png", posterAlt: "PPP's purple anti-femicide awareness poster with handprints, the PPP logo and the message: Where community comes first, safety must come first too. We stand against femicide and violence against women.",
+      headline: "Where community comes first, safety must come first too.", message: "PPP stands against gender-based violence and femicide, and stands in solidarity with the Enough Is Enough movement. Respect, dignity and safety belong in every gaming community." },
     socials: [
       { label: "PPP Discord", url: "https://discord.gg/xcbdRqGMcg" },
       { label: "Twitch", url: "https://www.twitch.tv/powerpuffpotatoes_za" },

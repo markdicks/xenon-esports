@@ -20,6 +20,9 @@ test("collaboration assets exist locally and social links are explicit direct HT
   const ppp = collaborators[0];
   assert.ok(fs.statSync(path.join(__dirname, "../public", ppp.artwork)).size > 0);
   assert.match(ppp.artworkAlt, /XP.*Powerpuff.*Xenon/);
+  for (const asset of [ppp.logo, ppp.awareness.poster]) assert.ok(fs.statSync(path.join(__dirname, "../public", asset)).size > 0);
+  assert.match(ppp.awareness.message, /gender-based violence and femicide/);
+  assert.match(ppp.awareness.message, /Enough Is Enough/);
   assert.equal(ppp.socials.find(link => link.label === "PPP Discord").url, "https://discord.gg/xcbdRqGMcg");
   assert.equal(ppp.socials.find(link => link.label === "All PPP links").url, "https://linktr.ee/powerpuffpotatoes7");
   for (const social of ppp.socials) {
