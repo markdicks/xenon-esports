@@ -132,3 +132,25 @@ normal two-hour notice. It works before the first booking and for an existing
 booking. Existing bookings retain their channel and use the reschedule DM cleanup
 and replacement flow. Closed meetings, stale edits, active worker leases and
 post-meeting activity remain protected. The action is recorded in meeting history.
+
+## Proposals for manual meetings
+
+In the meeting voice channel's text chat, use `/proposal member:<person>` after
+the scheduled start. The server owner or the staff roles responsible for that
+meeting can choose an existing participant, select approved onboarding roles
+(or no role changes), and write the proposal and separate private notes.
+
+The recipient is fixed when the first proposal is published. Revisions use that
+same recipient; use another meeting for a different person. Opening or cancelling
+the editor does not publish anything. The original meeting requester and schedule
+stay unchanged. Completed manual meetings can receive proposals while retaining
+their archive. Cancelled/deleted meetings and final accepted outcomes cannot be
+reopened through this command. Nobody can create or approve their own proposal.
+
+Only the selected participant can accept, decline or counter-propose in their DM.
+Approved role grants use the existing policy and acceptance checks. Public terms
+and responses are retained in the meeting chat; private notes remain restricted
+to the owner/responsible staff and are never returned to the recipient. Follow-up
+rounds use the proposal recipient as the next meeting's requester. This uses the
+existing outcome tables and JSON state; no new migration or environment variable
+is required. Deploy the website before the bot.

@@ -10,6 +10,11 @@ const manuallyStopped = (meeting: MeetingState) => ["accepted", "rejected", "clo
   && Boolean(meeting.lastAction?.kind.startsWith("status:"));
 function fail(message: string, status = 409): never { throw Object.assign(new Error(message), { status }); }
 type Context = { meeting: MeetingState; outcome: MeetingOutcome; revision: string | null };
+function proposalMeeting(meeting: MeetingState, outcome: MeetingOutcome) {
+  const recipientId = outcome.recipientId || meeting.applicantId;
+  return { ...meeting, applicantId: recipientId, applicantDiscord: outcome.recipientId
+    ? meeting.participants.find((p) => p.userId === recipientId)?.displayName || "Meeting participant" : meeting.applicantDiscord };
+}
 export async function onboardingPolicy(guildId: string, connection: Pool | PoolConnection = getDbPool()) {
   const [rows] = await connection.execute<RowDataPacket[]>("SELECT revision, role_ids FROM discord_onboarding_policy WHERE guild_id = ?", [guildId]);
   return { revision: rows[0]?.revision as string | undefined || null, roleIds: rows[0] ? rolePolicySchema.parse({ roleIds: parsed(rows[0].role_ids) }).roleIds : [] };
@@ -32,8 +37,8 @@ export async function readMeetingOutcome(id: string, guildId: string) {
     WHERE meeting.id = ? AND meeting.guild_id = ?`, [id, guildId]);
   if (!rows[0]) fail("Meeting not found.", 404);
   const meeting = meetingStateSchema.parse(parsed(rows[0].meeting_state));
-  if (meeting.internal) fail("Internal meetings do not have onboarding outcomes.", 409);
-  let route = meeting.reference.startsWith("XEN-APP-") ? "application" : "interest";
+  const outcome = outcomeSchema.parse(parsed(rows[0].outcome_state) || {});
+  let route = meeting.internal ? "internal" : meeting.reference.startsWith("XEN-APP-") ? "application" : "interest";
   if (meeting.reference.startsWith("XEN-CON-")) {
     const [source] = await getDbPool().execute<RowDataPacket[]>("SELECT subject FROM contact_submissions WHERE public_reference = ?", [meeting.reference]);
     const category = String(source[0]?.subject || "").trim().toLowerCase();
@@ -44,12 +49,13 @@ export async function readMeetingOutcome(id: string, guildId: string) {
     const [source] = await getDbPool().execute<RowDataPacket[]>("SELECT interests FROM interest_submissions WHERE reference_code = ?", [meeting.reference]);
     routes = [route, ...selectedInterestRoutes(source[0]?.interests)];
   }
-  return { meeting, outcome: outcomeSchema.parse(parsed(rows[0].outcome_state) || {}), revision: rows[0].revision || null, route, routes };
+  return { meeting: proposalMeeting(meeting, outcome), outcome, revision: rows[0].revision || null, route, routes };
 }
 export async function listMeetingOutcomes(guildId: string, after: string | null) {
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT meeting.id, meeting.state AS meeting_state, outcome.state AS outcome_state
     FROM discord_meetings AS meeting LEFT JOIN discord_meeting_outcomes AS outcome ON outcome.meeting_id = meeting.id
-    WHERE meeting.guild_id = ? AND (? IS NULL OR meeting.id > ?) AND meeting.public_reference NOT LIKE 'XEN-MTG-%'
+    WHERE meeting.guild_id = ? AND (? IS NULL OR meeting.id > ?)
+      AND (meeting.public_reference NOT LIKE 'XEN-MTG-%' OR JSON_EXTRACT(outcome.state, '$.recipientId') IS NOT NULL)
       AND CONVERT(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.status')) USING utf8mb4) COLLATE utf8mb4_unicode_ci = 'scheduled'
       AND (CAST(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.scheduledAt')) AS UNSIGNED) >= ?
         OR CONVERT(JSON_UNQUOTE(JSON_EXTRACT(outcome.state, '$.status')) USING utf8mb4) COLLATE utf8mb4_unicode_ci IN ('review','offered','countered','declined','accepted')
@@ -60,9 +66,10 @@ export async function listMeetingOutcomes(guildId: string, after: string | null)
     const meeting = meetingStateSchema.parse(parsed(row.meeting_state)), outcome = outcomeSchema.parse(parsed(row.outcome_state) || {});
     const proposal = outcome.proposals.at(-1);
     // Workers never need private staff notes or older proposals in their polling payload.
-    return { meeting: { id: meeting.id, guildId, reference: meeting.reference, applicantId: meeting.applicantId, applicantDiscord: meeting.applicantDiscord,
+    const recipient = proposalMeeting(meeting, outcome);
+    return { meeting: { id: meeting.id, guildId, reference: meeting.reference, applicantId: recipient.applicantId, applicantDiscord: recipient.applicantDiscord,
       scheduledAt: meeting.scheduledAt, channelId: meeting.channelId, attendeeIds: meeting.attendeeIds, workflowStatus: meeting.workflowStatus, automationStopped: manuallyStopped(meeting),
-      managerIds: meeting.participants.filter((person) => person.kind === "manager").map((person) => person.userId) },
+      managerIds: meeting.participants.filter((person) => person.userId !== recipient.applicantId && (person.kind === "manager" || (meeting.internal && person.kind === "applicant"))).map((person) => person.userId) },
       outcome: { ...outcome, privateNotes: undefined, proposals: proposal ? [{ ...proposal, privateNotes: undefined }] : [] } };
   }).filter((row) => row.meeting.channelId && !row.meeting.automationStopped && row.meeting.workflowStatus !== "closed" && !["followup", "closed"].includes(row.outcome.status)),
     next: rows.length === 50 ? rows.at(-1)!.id as string : null };
@@ -75,9 +82,9 @@ async function changeOutcome(id: string, guildId: string, actorId: string | null
     const [meetings] = await connection.execute<RowDataPacket[]>("SELECT state FROM discord_meetings WHERE id = ? AND guild_id = ? FOR UPDATE", [id, guildId]);
     if (!meetings[0]) fail("Meeting not found.", 404);
     const meeting = meetingStateSchema.parse(parsed(meetings[0].state));
-    if (meeting.internal) fail("Internal meetings do not have onboarding outcomes.", 409);
+    if (meeting.deletion || meeting.lifecycle?.cancellation?.confirmedAt) fail("This meeting was cancelled or deleted.");
     if (meeting.status !== "scheduled" || !meeting.channelId || !meeting.applicantId) fail("This meeting is not ready for follow-up.");
-    if (meeting.workflowStatus === "closed") fail("This submission is closed.");
+    if (meeting.workflowStatus === "closed" && !(meeting.internal && meeting.lifecycle?.finishedAt)) fail("This submission is closed.");
     if (manuallyStopped(meeting)) fail("Automated follow-up was stopped by a submission manager.");
     const [rows] = await connection.execute<RowDataPacket[]>("SELECT state, revision FROM discord_meeting_outcomes WHERE meeting_id = ? FOR UPDATE", [id]);
     const context: Context = { meeting, outcome: outcomeSchema.parse(parsed(rows[0]?.state) || {}), revision: rows[0]?.revision || null };
@@ -95,11 +102,12 @@ async function changeOutcome(id: string, guildId: string, actorId: string | null
       if (actorId) meeting.lastAction = { actorId, kind, at: Date.now() };
       await connection.execute("UPDATE discord_meetings SET state = ?, revision = ? WHERE id = ? AND guild_id = ?", [JSON.stringify(meeting), randomUUID(), id, guildId]);
     }
-    await connection.commit(); return context;
+    await connection.commit(); return { ...context, meeting: proposalMeeting(meeting, context.outcome) };
   } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
 }
 export async function observeMeeting(id: string, guildId: string, qualified: boolean, empty: boolean) {
   return changeOutcome(id, guildId, null, "voice_presence", ({ meeting, outcome }) => {
+    if (meeting.internal && !outcome.recipientId) return;
     if (outcome.status !== "watching") return;
     const now = Date.now();
     if (now < meeting.scheduledAt! - 15 * 60000 || (!outcome.qualifiedAt && now > meeting.scheduledAt! + 24 * 3600000)) return;
@@ -122,8 +130,17 @@ export async function continueMeeting(id: string, guildId: string, actorId: stri
     delete outcome.qualifiedAt; delete outcome.emptySince; delete outcome.reviewMessage;
   });
 }
-export async function createMeetingProposal(input: { id: string; guildId: string; actorId: string; version: number; summary: string; privateNotes: string; roleIds: string[]; roleNames: string[]; policyRevision: string | null }) {
+export async function createMeetingProposal(input: { id: string; guildId: string; actorId: string; version: number; summary: string; privateNotes: string; roleIds: string[]; roleNames: string[]; policyRevision: string | null; recipientId?: string }) {
   return changeOutcome(input.id, input.guildId, input.actorId, "proposal_sent", async ({ meeting, outcome }, connection) => {
+    if (meeting.internal) {
+      const recipientId = input.recipientId || outcome.recipientId;
+      if (!recipientId || !meeting.participants.some((p) => p.userId === recipientId)) fail("Choose a participant in this meeting to receive the proposal.", 400);
+      if (recipientId === input.actorId) fail("You cannot send or approve your own proposal.", 403);
+      if (outcome.recipientId && outcome.recipientId !== recipientId) fail("This meeting already has a proposal for a different participant. Create another meeting for a different person.");
+      if (Date.now() < meeting.scheduledAt!) fail("The scheduled meeting has not started yet.");
+      outcome.recipientId = recipientId;
+      if (outcome.status === "watching") outcome.status = "review";
+    } else if (input.recipientId && input.recipientId !== meeting.applicantId) fail("Website meeting proposals must go to the original applicant.", 400);
     if (!["review", "offered", "countered", "declined"].includes(outcome.status)) fail("This meeting cannot receive a new proposal.");
     const latest = outcome.proposals.at(-1)?.version || 0;
     if (input.version !== latest || latest >= 20) fail("The proposal changed. Review the latest version first.");
@@ -141,7 +158,7 @@ export async function createMeetingProposal(input: { id: string; guildId: string
 }
 export async function respondToProposal(input: { id: string; guildId: string; userId: string; version: number; response: "accepted" | "declined" | "countered"; text: string }) {
   return changeOutcome(input.id, input.guildId, input.userId, `proposal_${input.response}`, ({ meeting, outcome }) => {
-    if (meeting.applicantId !== input.userId) fail("Only the invited applicant can respond.", 403);
+    if ((outcome.recipientId || meeting.applicantId) !== input.userId) fail(meeting.internal ? "Only the proposal recipient can respond." : "Only the invited applicant can respond.", 403);
     const proposal = outcome.proposals.at(-1);
     if (!proposal || proposal.version !== input.version || outcome.status !== "offered") fail("This proposal is no longer awaiting a response. Use the latest message.");
     if (input.response === "countered" && !input.text.trim()) fail("Describe what you would like to change.", 400);
@@ -190,9 +207,10 @@ export async function retryMeetingOutcome(id: string, guildId: string, actorId: 
   });
 }
 export async function claimOnboardingRoles(id: string, guildId: string, version: number) {
-  const context = await changeOutcome(id, guildId, null, "onboarding_role_attempt", ({ outcome }) => {
+  const context = await changeOutcome(id, guildId, null, "onboarding_role_attempt", ({ meeting, outcome }) => {
     const proposal = outcome.proposals.at(-1), now = Date.now();
     if (!proposal || proposal.version !== version || outcome.status !== "accepted" || proposal.response?.kind !== "accepted") fail("No accepted proposal is awaiting onboarding.");
+    if (proposal.response.userId !== (outcome.recipientId || meeting.applicantId)) fail("The accepted proposal has a different recipient.");
     if ((outcome.grant.leaseUntil || 0) > now || (outcome.grant.nextAttemptAt || 0) > now) fail("Role assignment is paused, waiting or already in progress.");
     if (outcome.grant.attempts >= 16 && !outcome.grant.paused) {
       outcome.grant.paused = true; outcome.deliveryFailure = "roles";
@@ -218,13 +236,15 @@ export async function createFollowupMeeting(input: { id: string; guildId: string
   return changeOutcome(input.id, input.guildId, input.actorId, "followup_meeting_requested", async ({ meeting, outcome }, connection) => {
     if (outcome.followupId) return;
     if (!["review", "offered", "countered", "declined"].includes(outcome.status)) fail("This meeting cannot be followed up yet.");
+    if (meeting.internal && input.departments.length !== 1) fail("Choose one department for a manual meeting follow-up.", 400);
     await connection.execute("SELECT id FROM discord_meetings WHERE public_reference = ? AND round_number = 1 FOR UPDATE", [meeting.reference]);
     const [rounds] = await connection.execute<RowDataPacket[]>("SELECT id, round_number FROM discord_meetings WHERE public_reference = ? ORDER BY round_number DESC LIMIT 1", [meeting.reference]);
     if (rounds[0]?.id !== meeting.id || rounds[0].round_number >= 100) fail("A newer meeting already exists for this submission.");
-    const managerIds = Array.from(new Set(input.managerIds)).filter((id) => id !== meeting.applicantId);
+    const recipientId = outcome.recipientId || meeting.applicantId!;
+    const managerIds = Array.from(new Set(input.managerIds)).filter((id) => id !== recipientId);
     if (!managerIds.length) fail("The selected departments have no available managers.", 400);
     const now = Date.now();
-    const priorApplicant = meeting.participants.find((person) => person.kind === "applicant")!;
+    const priorApplicant = meeting.participants.find((person) => person.userId === recipientId)!;
     const start = followupWindowStart(meeting.scheduledAt!, priorApplicant.timezone, now), end = start + 14 * 86400000;
     const carry = (userId: string, kind: "applicant" | "manager") => {
       const prior = meeting.participants.find((person) => person.userId === userId);
@@ -232,10 +252,12 @@ export async function createFollowupMeeting(input: { id: string; guildId: string
       return { userId, kind, slots, responded: slots.length > 0, timezone: prior?.timezone, source: prior?.source };
     };
     const child = meetingStateSchema.parse({ ...meeting, id: randomBytes(12).toString("hex"), roundNumber: rounds[0].round_number + 1,
+      applicantId: recipientId, applicantDiscord: priorApplicant.displayName || proposalMeeting(meeting, outcome).applicantDiscord,
+      internal: meeting.internal ? { topic: meeting.internal.topic, recipientType: "department" } : undefined, ownerScheduled: undefined,
       parentMeetingId: meeting.id, lifecycle: undefined, deletion: undefined, staffRoleIds: undefined, deliveryChecks: undefined, reschedule: undefined, announcementIds: undefined, reminders: undefined, bookedAt: undefined,
       departments: input.departments, windowStart: start, windowEnd: end,
       reuseAvailability: true, attentionSince: now, attentionNotifiedAt: undefined,
-      participants: [...managerIds.map((userId) => carry(userId, "manager")), carry(meeting.applicantId!, "applicant")],
+      participants: [...managerIds.map((userId) => carry(userId, "manager")), carry(recipientId, "applicant")],
       status: "pending", workflowStatus: "new", attempts: 0, automaticRetries: 0, retryPaused: false, manualRetryRequested: false,
       failureReason: null, channelId: null, scheduledAt: null, attendeeIds: [], announcementId: null, completed: false,
       lastAction: { actorId: input.actorId, kind: "followup_created", at: Date.now() } });

@@ -19,6 +19,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("review"), ...manager }).strict(),
   z.object({ action: z.literal("continue"), ...manager }).strict(),
   z.object({ action: z.literal("propose"), ...manager, version, summary: z.string().trim().min(1).max(2000), privateNotes: z.string().max(4000),
+    recipientId: discordId.optional(),
     roleIds: z.array(discordId).max(10), roleNames: z.array(z.string().min(1).max(100)).max(10), policyRevision: z.string().uuid().nullable() }).strict(),
   z.object({ action: z.literal("respond"), ...identity, userId: discordId, version, response: z.enum(["accepted", "declined", "countered"]), text: z.string().max(2000).default("") }).strict(),
   z.object({ action: z.literal("receipt"), ...identity, field: z.enum(["review", "proposal", "notice"]), version,

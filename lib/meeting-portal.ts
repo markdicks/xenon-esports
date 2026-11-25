@@ -170,11 +170,16 @@ export async function portalDetail(id: string, guildId: string, allowed: string[
   const answers = internal ? [{ topic: internal.topic, ...(internal.recipientType === "discord" ? { recipient: "Discord member" } : { department: current.state.departments[0] }) }]
     : (await getDbPool().execute<RowDataPacket[]>(`SELECT * FROM ${table} WHERE ${prefix === "INT" ? "reference_code" : "public_reference"} = ?`, [current.state.reference]))[0];
   let outcome = null, outcomeEvents: unknown[] = [];
-  if (!internal && access?.actorId !== current.state.applicantId) try {
+  const mayReadOutcome = internal ? access?.serverOwner || current.state.staffRoleIds?.some((role) => access?.actorStaffRoleIds?.includes(role))
+    : access?.actorId !== current.state.applicantId;
+  if (mayReadOutcome) try {
     const [saved] = await getDbPool().execute<RowDataPacket[]>("SELECT state FROM discord_meeting_outcomes WHERE meeting_id = ?", [id]);
     outcome = saved[0] ? outcomeSchema.parse(typeof saved[0].state === "string" ? JSON.parse(saved[0].state) : saved[0].state) : null;
-    const [events] = await getDbPool().execute<RowDataPacket[]>("SELECT actor_id, event_type, created_at FROM discord_meeting_outcome_events WHERE meeting_id = ? ORDER BY id DESC LIMIT 25", [id]);
-    outcomeEvents = events.map((event) => ({ actorId: event.actor_id, kind: event.event_type, at: new Date(event.created_at).toISOString() }));
+    if (outcome?.recipientId === access?.actorId) outcome = null;
+    if (outcome) {
+      const [events] = await getDbPool().execute<RowDataPacket[]>("SELECT actor_id, event_type, created_at FROM discord_meeting_outcome_events WHERE meeting_id = ? ORDER BY id DESC LIMIT 25", [id]);
+      outcomeEvents = events.map((event) => ({ actorId: event.actor_id, kind: event.event_type, at: new Date(event.created_at).toISOString() }));
+    }
   } catch (error) { if ((error as { code?: string }).code !== "ER_NO_SUCH_TABLE") throw error; }
   return { ...current, outcome, outcomeEvents, source: { type: source.type, createdAt: new Date(source.created_at).toISOString() }, answers: answers[0] || {},
     health: meetingFollowUp(current.state, new Date(source.created_at).getTime()),

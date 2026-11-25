@@ -5,6 +5,7 @@ export const departmentKeys = ["content", "operations", "competitive", "creators
 export const rolePolicySchema = z.object({ roleIds: z.array(discordId).max(20).refine((ids) => new Set(ids).size === ids.length) }).strict();
 const receipt = z.object({ channelId: discordId, messageId: discordId }).strict();
 export const outcomeSchema = z.object({
+  recipientId: discordId.optional(),
   status: z.enum(["watching", "review", "offered", "countered", "declined", "accepted", "onboarded", "followup", "closed"]).default("watching"),
   qualifiedAt: z.number().int().positive().optional(), emptySince: z.number().int().positive().optional(),
   reviewMessage: receipt.optional(), privateNotes: z.string().max(4000).default(""),

@@ -17,7 +17,7 @@ function project(row: RowDataPacket) {
     attendeeIds: state.attendeeIds,
     participants: state.participants.map((person) => ({ userId: person.userId, kind: person.kind,
       deliveryFailure: person.deliveryFailure, resendGeneration: person.resendGeneration, reminderFailedAt: person.reminderFailedAt })),
-  }, outcome: { status: outcome.status, followupId: outcome.followupId, deliveryFailure: outcome.deliveryFailure,
+  }, outcome: { status: outcome.status, recipientId: outcome.recipientId, followupId: outcome.followupId, deliveryFailure: outcome.deliveryFailure,
     proposals: outcome.proposals.map((proposal) => ({ version: proposal.version, summary: proposal.summary,
       roleNames: proposal.roleNames, authorId: proposal.authorId, at: proposal.at, response: proposal.response })) } };
 }
@@ -97,6 +97,7 @@ export async function finishInternalMeeting(input: Change & { actorId: string; r
     if (revision !== input.revision) fail("The meeting changed. Try again.");
     cancellable(state, outcome);
     if (Date.now() < state.scheduledAt!) fail("This meeting has not started yet.");
+    if (outcome.proposals.length) fail("This meeting has a proposal. Finish through the proposal response flow instead.");
     state.lifecycle ??= { records: {} }; state.lifecycle.finishedAt = Date.now();
     state.workflowStatus = "closed"; state.completed = true; state.manualRetryRequested = false;
   });

@@ -62,6 +62,75 @@ test("voice presence requires an attended session and a full empty-channel grace
   assert.equal(f.data().outcomes.get(meetingId).state.status, "review");
   assert.equal(f.data().meetings.get(meetingId).state.workflowStatus, "meeting");
 });
+function manualFixture() {
+  const f = fixture(), meeting = f.data().meetings.get(meetingId).state;
+  meeting.reference = "XEN-MTG-AAAAAAAAAAAA"; meeting.internal = { topic: "Content discussion", recipientType: "discord" };
+  meeting.staffRoleIds = [id(50)]; meeting.participants[1].displayName = "Stormi";
+  return { ...f, meeting, proposal: (change = {}) => f.propose({ actorId: id(2), recipientId: id(3), ...change }) };
+}
+test("a manual proposal addresses the chosen participant without rewriting the meeting requester or requiring a website form", async () => {
+  const f = manualFixture(); await f.proposal();
+  const saved = f.data().outcomes.get(meetingId).state;
+  assert.equal(saved.recipientId, id(3)); assert.equal(saved.status, "offered");
+  assert.equal(f.data().meetings.get(meetingId).state.applicantId, id(2));
+  const bundle = await f.api.readMeetingOutcome(meetingId, id(1));
+  assert.equal(bundle.meeting.applicantId, id(3)); assert.equal(bundle.meeting.applicantDiscord, "Stormi"); assert.equal(bundle.route, "internal");
+  const batch = await f.api.listMeetingOutcomes(id(1), null);
+  assert.equal(batch.meetings[0].meeting.applicantId, id(3)); assert.deepEqual(batch.meetings[0].meeting.managerIds, [id(2)]);
+  assert.doesNotMatch(JSON.stringify(batch), /PRIVATE STAFF NOTES/);
+  await assert.rejects(f.respond("accepted", { userId: id(2) }), /recipient/);
+  await f.respond("accepted", { userId: id(3) });
+  const claimed = await f.api.claimOnboardingRoles(meetingId, id(1), 1);
+  assert.equal(claimed.meeting.applicantId, id(3));
+  await f.api.acknowledgeOnboardingRoles({ id: meetingId, guildId: id(1), version: 1, leaseToken: claimed.outcome.grant.leaseToken, appliedRoleIds: [id(20)], failed: false });
+  assert.equal(f.data().outcomes.get(meetingId).state.status, "onboarded");
+});
+test("manual proposal versions cannot retarget, bypass role policy, self-approve, or revive cancelled/deleted meetings", async () => {
+  for (const changes of [{ recipientId: id(99) }, { recipientId: id(2) }, { roleIds: [id(99)] }]) {
+    const f = manualFixture(); await assert.rejects(f.proposal(changes)); assert.equal(f.data().outcomes.size, 0);
+  }
+  const f = manualFixture(); await f.proposal();
+  await assert.rejects(f.proposal({ recipientId: id(2), actorId: id(4), version: 1 }), /different participant/);
+  await assert.rejects(f.proposal(), /changed/);
+  for (const field of ["cancelled", "deleted", "future"]) {
+    const f = manualFixture();
+    if (field === "cancelled") f.meeting.lifecycle = { records: {}, cancellation: { token: policyRevision, requestedBy: id(2), requestedAt: Date.now(), expiresAt: Date.now() + 60000, reason: "Cancelled", confirmedAt: Date.now(), confirmedBy: id(3) } };
+    if (field === "deleted") f.meeting.deletion = { requestedBy: id(2), requestedAt: Date.now() };
+    if (field === "future") f.meeting.scheduledAt = Date.now() + 3600000;
+    await assert.rejects(f.proposal()); assert.equal(f.data().outcomes.size, 0);
+  }
+});
+test("a completed manual meeting can receive a proposal while retaining its archive and original requester", async () => {
+  const f = manualFixture(); f.meeting.lifecycle = { finishedAt: Date.now(), records: {} }; f.meeting.workflowStatus = "closed";
+  await f.proposal({ roleIds: [], roleNames: [], policyRevision: null });
+  assert.ok(f.data().meetings.get(meetingId).state.lifecycle.finishedAt);
+  assert.equal(f.data().meetings.get(meetingId).state.applicantId, id(2));
+  await f.respond("countered", { userId: id(3), text: "Can we change the schedule?" });
+  await f.proposal({ version: 1, roleIds: [], roleNames: [], policyRevision: null, summary: "Updated terms" });
+  assert.equal(f.data().outcomes.get(meetingId).state.proposals.length, 2);
+});
+test("a manual follow-up carries the proposal recipient into the next round as its requester", async () => {
+  const f = manualFixture(); await f.proposal();
+  const result = await f.api.createFollowupMeeting({ id: meetingId, guildId: id(1), actorId: id(2), departments: ["content"], managerIds: [id(4), id(3)], privateNotes: "Staff only" });
+  const child = f.data().meetings.get(result.outcome.followupId).state;
+  assert.equal(child.applicantId, id(3)); assert.equal(child.internal.recipientType, "department");
+  assert.deepEqual(child.participants.map((p) => [p.userId, p.kind]), [[id(4), "manager"], [id(3), "applicant"]]);
+  assert.equal(child.lifecycle, undefined); assert.equal(child.ownerScheduled, undefined);
+});
+test("manual proposal notes in the workspace are visible only to the owner/responsible staff and never to the recipient", async () => {
+  const f = manualFixture(); await f.proposal();
+  const portal = load("lib/meeting-portal.ts", { "@/lib/meetings": { getMeeting: async () => ({ state: f.data().meetings.get(meetingId).state, revision: policyRevision }) },
+    "@/lib/db": { getDbPool: () => ({ execute: async (sql) => {
+      if (sql.includes("discord_meeting_history")) return [[]];
+      if (sql.includes("discord_meeting_outcome_events")) return [[{ actor_id: id(2), event_type: "proposal_sent", created_at: new Date() }]];
+      if (sql.includes("discord_meeting_outcomes")) return [[{ state: f.data().outcomes.get(meetingId).state }]];
+      throw Error(sql);
+    } }) } });
+  const read = (actorId, change = {}) => portal.portalDetail(meetingId, id(1), [], null, { actorId, departments: [], actorStaffRoleIds: [id(50)], participantAccess: true, ...change });
+  const owner = await read(id(2), { serverOwner: true }); assert.equal(owner.outcome.privateNotes, "PRIVATE STAFF NOTES");
+  const recipient = await read(id(3)); assert.equal(recipient.outcome, null); assert.deepEqual(recipient.outcomeEvents, []); assert.doesNotMatch(JSON.stringify(recipient), /PRIVATE STAFF NOTES/);
+  const unrelated = await read(id(4), { actorStaffRoleIds: [] }); assert.equal(unrelated.outcome, null);
+});
 test("rejoining cancels empty-channel detection; not-finished waits for a new session", async (t) => {
   let now = Date.now(); t.mock.method(Date, "now", () => now);
   const f = fixture(); await f.api.observeMeeting(meetingId, id(1), true, false);
