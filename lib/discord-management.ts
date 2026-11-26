@@ -44,8 +44,16 @@ const pillarSchema = z.object({
 }).strict().refine((pillar) => (!pillar.teams?.length || pillar.key === "competitive")
   && new Set(pillar.teams?.map((team) => team.id)).size === (pillar.teams?.length || 0)
   && new Set(pillar.teams?.map((team) => team.categoryId).filter(Boolean)).size === (pillar.teams?.filter((team) => team.categoryId).length || 0));
+const welcomeLines = z.array(z.string().trim().max(140).refine((line) =>
+  !/[\u0000-\u001f\u007f\u2028\u2029]/.test(line) && line.split("{member}").length === 2 && line.replace("{member}", "").trim().length > 0,
+)).max(20).refine((lines) => new Set(lines).size === lines.length);
+const welcomeSchema = z.object({
+  enabled: z.boolean(), channelId: id,
+  templates: z.object({ general: welcomeLines, updates: welcomeLines, events: welcomeLines, giveaways: welcomeLines, mixed: welcomeLines }).strict(),
+}).strict();
 export const managementSchema = z.object({
   availabilityTeams: availabilityTeamsSchema.optional(),
+  welcome: welcomeSchema.optional(),
   pillars: z.array(pillarSchema).length(pillarKeys.length).refine((pillars) => new Set(pillars.map((pillar) => pillar.key)).size === pillarKeys.length
     && pillars.reduce((total, pillar) => total + pillar.leadAccess.length, 0) <= 1000
     && (() => { const ids = pillars.flatMap((pillar) => [...pillar.subroles, ...(pillar.teams || []).flatMap((team) => team.roles)]).map((role) => role.id); return new Set(ids).size === ids.length; })()),

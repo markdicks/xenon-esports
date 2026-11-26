@@ -14,7 +14,7 @@ function authorized(request: Request) {
   const expected = Buffer.from(`Bearer ${secret}`), actual = Buffer.from(request.headers.get("authorization") || "");
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
-const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store", "X-Xenon-Management-Version": "2" } });
 
 export async function GET(request: Request) {
   if (!authorized(request)) return json({ error: "Unauthorized" }, 401);

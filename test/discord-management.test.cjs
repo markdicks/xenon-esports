@@ -5,6 +5,20 @@ const config = { pillars: ["content", "operations", "competitive", "creators", "
   key, leadRoleId: null, targets: [], permissions: [], subroles: [], pendingChannels: [], leadAccess: [], leadAccessPending: false,
 })) };
 
+test("welcome settings extend existing configuration and keep short, unique message templates", async () => {
+  const welcome = { enabled: true, channelId: "932710388632526858",
+    templates: { general: [], updates: ["Hi {member}! Watch for Xenon news."], events: [], giveaways: [], mixed: [] } };
+  const saved = { ...config, welcome };
+  const pool = { execute: async () => [[{ revision: "stored-revision", configuration: JSON.stringify(saved) }]] };
+  const management = loadTypeScript("lib/discord-management.ts", { "@/lib/db": { getDbPool: () => pool } });
+  assert.deepEqual((await management.getManagementConfig("444444444444444444")).config, saved);
+  for (const line of ["Missing mention", "{member} and {member}", "Hello {member}\nSpam", "{member}", `Hi {member}! ${"x".repeat(140)}`]) {
+    const bad = { ...welcome, templates: { ...welcome.templates, updates: [line] } };
+    assert.equal(management.managementSchema.safeParse({ ...config, welcome: bad }).success, false);
+  }
+  assert.equal(management.managementSchema.safeParse({ ...saved, welcome: { ...welcome, templates: { ...welcome.templates, events: ["Hi {member}", " Hi {member} "] } } }).success, false);
+});
+
 test("management API requires the internal bot secret and validates scope documents", async (t) => {
   const previous = process.env.WEBSITE_BOT_TOKEN;
   t.after(() => { if (previous === undefined) delete process.env.WEBSITE_BOT_TOKEN; else process.env.WEBSITE_BOT_TOKEN = previous; });
