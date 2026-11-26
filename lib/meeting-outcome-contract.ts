@@ -8,6 +8,7 @@ export const outcomeSchema = z.object({
   recipientId: discordId.optional(),
   status: z.enum(["watching", "review", "offered", "countered", "declined", "accepted", "onboarded", "followup", "closed"]).default("watching"),
   qualifiedAt: z.number().int().positive().optional(), emptySince: z.number().int().positive().optional(),
+  voiceSession: z.object({ scheduledAt: z.number().int().positive(), emptySince: z.number().int().positive().optional() }).strict().optional(),
   reviewMessage: receipt.optional(), privateNotes: z.string().max(4000).default(""),
   reviewCycle: z.number().int().min(0).max(1000).default(0),
   proposals: z.array(z.object({

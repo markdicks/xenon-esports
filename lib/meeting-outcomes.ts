@@ -55,7 +55,6 @@ export async function listMeetingOutcomes(guildId: string, after: string | null)
   const [rows] = await getDbPool().execute<RowDataPacket[]>(`SELECT meeting.id, meeting.state AS meeting_state, outcome.state AS outcome_state
     FROM discord_meetings AS meeting LEFT JOIN discord_meeting_outcomes AS outcome ON outcome.meeting_id = meeting.id
     WHERE meeting.guild_id = ? AND (? IS NULL OR meeting.id > ?)
-      AND (meeting.public_reference NOT LIKE 'XEN-MTG-%' OR JSON_EXTRACT(outcome.state, '$.recipientId') IS NOT NULL)
       AND CONVERT(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.status')) USING utf8mb4) COLLATE utf8mb4_unicode_ci = 'scheduled'
       AND (CAST(JSON_UNQUOTE(JSON_EXTRACT(meeting.state, '$.scheduledAt')) AS UNSIGNED) >= ?
         OR CONVERT(JSON_UNQUOTE(JSON_EXTRACT(outcome.state, '$.status')) USING utf8mb4) COLLATE utf8mb4_unicode_ci IN ('review','offered','countered','declined','accepted')
@@ -68,7 +67,7 @@ export async function listMeetingOutcomes(guildId: string, after: string | null)
     // Workers never need private staff notes or older proposals in their polling payload.
     const recipient = proposalMeeting(meeting, outcome);
     return { meeting: { id: meeting.id, guildId, reference: meeting.reference, applicantId: recipient.applicantId, applicantDiscord: recipient.applicantDiscord,
-      scheduledAt: meeting.scheduledAt, channelId: meeting.channelId, attendeeIds: meeting.attendeeIds, workflowStatus: meeting.workflowStatus, automationStopped: manuallyStopped(meeting),
+      scheduledAt: meeting.scheduledAt, channelId: meeting.channelId, attendeeIds: meeting.attendeeIds, internal: Boolean(meeting.internal), workflowStatus: meeting.workflowStatus, automationStopped: manuallyStopped(meeting),
       managerIds: meeting.participants.filter((person) => person.userId !== recipient.applicantId && (person.kind === "manager" || (meeting.internal && person.kind === "applicant"))).map((person) => person.userId) },
       outcome: { ...outcome, privateNotes: undefined, proposals: proposal ? [{ ...proposal, privateNotes: undefined }] : [] } };
   }).filter((row) => row.meeting.channelId && !row.meeting.automationStopped && row.meeting.workflowStatus !== "closed" && !["followup", "closed"].includes(row.outcome.status)),
@@ -107,10 +106,20 @@ async function changeOutcome(id: string, guildId: string, actorId: string | null
 }
 export async function observeMeeting(id: string, guildId: string, qualified: boolean, empty: boolean) {
   return changeOutcome(id, guildId, null, "voice_presence", ({ meeting, outcome }) => {
-    if (meeting.internal && !outcome.recipientId) return;
     if (outcome.status !== "watching") return;
-    const now = Date.now();
-    if (now < meeting.scheduledAt! - 15 * 60000 || (!outcome.qualifiedAt && now > meeting.scheduledAt! + 24 * 3600000)) return;
+    const now = Date.now(), scheduledAt = meeting.scheduledAt!;
+    if (now < scheduledAt - 15 * 60000) return;
+    if (meeting.internal && !outcome.recipientId) {
+      // Internal meetings only need a channel label until staff choose a proposal recipient.
+      if (outcome.voiceSession?.scheduledAt !== scheduledAt) {
+        if (!qualified || now > scheduledAt + 24 * 3600000) return;
+        outcome.voiceSession = { scheduledAt };
+      }
+      if (empty) outcome.voiceSession.emptySince ??= now;
+      else delete outcome.voiceSession.emptySince;
+      return;
+    }
+    if (!outcome.qualifiedAt && now > scheduledAt + 24 * 3600000) return;
     if (qualified && !outcome.qualifiedAt) outcome.qualifiedAt = now;
     if (empty && outcome.qualifiedAt) outcome.emptySince ??= now;
     else if (!empty) delete outcome.emptySince;
@@ -119,6 +128,7 @@ export async function observeMeeting(id: string, guildId: string, qualified: boo
 }
 export async function requestMeetingReview(id: string, guildId: string, actorId: string) {
   return changeOutcome(id, guildId, actorId, "meeting_review_requested", ({ meeting, outcome }) => {
+    if (meeting.internal && meeting.lifecycle?.finishedAt) fail("This meeting has already been archived.");
     if (Date.now() < meeting.scheduledAt!) fail("The scheduled meeting has not started yet.");
     if (outcome.status === "watching") outcome.status = "review";
   });

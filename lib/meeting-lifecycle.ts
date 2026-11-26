@@ -9,15 +9,17 @@ function fail(message: string, status = 409): never { throw Object.assign(new Er
 function project(row: RowDataPacket) {
   const state = meetingStateSchema.parse(parsed(row.state));
   const outcome = outcomeSchema.parse(parsed(row.outcome_state) || {});
+  const emptySince = outcome.voiceSession?.scheduledAt === state.scheduledAt ? outcome.voiceSession?.emptySince : undefined;
   return { revision: row.revision as string, meeting: {
     id: state.id, guildId: state.guildId, reference: state.reference, roundNumber: state.roundNumber,
     parentMeetingId: state.parentMeetingId, applicantId: state.applicantId, applicantDiscord: state.applicantDiscord,
+    applicantDisplayName: state.participants.find((person) => person.userId === state.applicantId)?.displayName,
     channelId: state.channelId, status: state.status, scheduledAt: state.scheduledAt, workflowStatus: state.workflowStatus,
     internal: Boolean(state.internal), topic: state.internal?.topic, departments: state.departments, lifecycle: state.lifecycle, deletion: state.deletion,
     attendeeIds: state.attendeeIds,
     participants: state.participants.map((person) => ({ userId: person.userId, kind: person.kind,
       deliveryFailure: person.deliveryFailure, resendGeneration: person.resendGeneration, reminderFailedAt: person.reminderFailedAt })),
-  }, outcome: { status: outcome.status, recipientId: outcome.recipientId, followupId: outcome.followupId, deliveryFailure: outcome.deliveryFailure,
+  }, outcome: { status: outcome.status, voiceEnded: Boolean(emptySince && Date.now() >= emptySince + 60000), recipientId: outcome.recipientId, followupId: outcome.followupId, deliveryFailure: outcome.deliveryFailure,
     proposals: outcome.proposals.map((proposal) => ({ version: proposal.version, summary: proposal.summary,
       roleNames: proposal.roleNames, authorId: proposal.authorId, at: proposal.at, response: proposal.response })) } };
 }

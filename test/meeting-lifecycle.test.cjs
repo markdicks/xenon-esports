@@ -46,6 +46,17 @@ test("cancellation stays pending until the other person confirms and retains bot
   assert.equal(f.data().state.workflowStatus, "closed"); assert.equal(f.data().state.lastAction.kind, "meeting_cancelled");
   await f.confirm(); assert.deepEqual(f.data().state.lifecycle.cancellation, cancellation);
 });
+test("a manual meeting's matched empty voice session is exposed after a minute and reset by rescheduling", async (t) => {
+  let now = Date.now(); t.mock.method(Date, "now", () => now);
+  const f = fixture({ internal: true });
+  f.data().outcome.voiceSession = { scheduledAt: f.data().state.scheduledAt, emptySince: now };
+  const read = () => f.api.readMeetingLifecycle(id(1), id(10));
+  assert.equal((await read()).outcome.voiceEnded, false);
+  now += 60000;
+  assert.equal((await read()).outcome.voiceEnded, true);
+  f.data().state.scheduledAt += 1800000;
+  assert.equal((await read()).outcome.voiceEnded, false);
+});
 test("attendance is due only after two minutes, serialized by a lease and completed once per booked time", async () => {
   const f = fixture(); f.data().state.scheduledAt = Date.now() - 120100;
   assert.equal((await f.api.dueMeetingAttendance(id(1))).meetings.length, 1);

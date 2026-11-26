@@ -68,6 +68,24 @@ function manualFixture() {
   meeting.staffRoleIds = [id(50)]; meeting.participants[1].displayName = "Stormi";
   return { ...f, meeting, proposal: (change = {}) => f.propose({ actorId: id(2), recipientId: id(3), ...change }) };
 }
+test("an internal voice session records real attendance without changing the proposal workflow", async (t) => {
+  let now = Date.now(); t.mock.method(Date, "now", () => now);
+  const f = manualFixture();
+  const observe = (qualified, empty) => f.api.observeMeeting(meetingId, id(1), qualified, empty);
+  const listed = await f.api.listMeetingOutcomes(id(1), null);
+  assert.equal(listed.meetings[0].meeting.internal, true);
+  await observe(false, true);
+  assert.equal(f.data().outcomes.size, 0);
+  await observe(true, false);
+  await observe(false, true);
+  now += 60000;
+  const session = (await observe(false, true)).outcome;
+  assert.equal(session.status, "watching");
+  assert.deepEqual(session.voiceSession, { scheduledAt: f.meeting.scheduledAt, emptySince: now - 60000 });
+  assert.equal((await observe(false, false)).outcome.voiceSession.emptySince, undefined);
+  assert.equal((await f.review()).outcome.status, "review");
+  assert.equal((await f.proposal()).outcome.status, "offered");
+});
 test("a manual proposal addresses the chosen participant without rewriting the meeting requester or requiring a website form", async () => {
   const f = manualFixture(); await f.proposal();
   const saved = f.data().outcomes.get(meetingId).state;
