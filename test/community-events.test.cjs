@@ -236,9 +236,9 @@ test("internal community controls authenticate before reads and reject forged or
   assert.equal(reads, 0); assert.equal((await api.POST(request({ action: "list", actorId, access: true }))).status, 200); assert.equal(reads, 1);
 });
 
-test("approved news publishes five November articles, preserves October summaries and keeps coaching private", () => {
+test("the original November release published five articles, preserved October summaries and kept coaching private", () => {
   const { news, publishedNews, publishedArticle, newsDate } = load("data/news.ts");
-  assert.equal(publishedNews().filter((article) => article.date === "2026-11-13").length, 5);
+  assert.equal(publishedNews("2026-11-13").filter((article) => article.date === "2026-11-13").length, 5);
   assert.equal(publishedArticle("rocket-league-coaching-addition"), undefined);
   assert.equal(news.find((article) => article.slug === "rocket-league-coaching-addition").status, "draft");
   assert.doesNotMatch(JSON.stringify(publishedNews()), /Serenity|Yash/);

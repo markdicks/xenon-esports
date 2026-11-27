@@ -4,30 +4,40 @@ const { createElement } = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const load = require("./load-typescript.cjs");
 
-test("the six editorial drafts are gated independently and reuse existing article URLs for updates", () => {
+test("the six approved articles release on their scheduled dates and reuse existing article URLs", () => {
   const { editorialDrafts } = load("data/news-drafts.ts");
   const { publishedNews } = load("data/news.ts", { "@/data/news-drafts": { editorialDrafts } });
-  assert.equal(editorialDrafts.length, 6);
-  assert.ok(editorialDrafts.every(({ status }) => status === "draft"));
-  const original = publishedNews("2026-12-31");
   const eventSlug = "december-community-events";
   const contentSlug = "rocket-league-content-team-development";
-  assert.equal(original.find(({ slug }) => slug === eventSlug).title, "December Community Events Are Coming");
-  assert.equal(original.find(({ slug }) => slug === contentSlug).date, "2026-11-13");
-  assert.ok(!original.some(({ slug }) => slug === "female-valorant-roster-interest"));
-  assert.ok(!original.some(({ slug }) => slug === "rocket-league-coaching-addition"));
+  const schedule = [
+    ["rocket-league-main-roster-recruitment", "2026-11-27"],
+    [eventSlug, "2026-11-27"],
+    ["female-valorant-roster-interest", "2026-11-29"],
+    [contentSlug, "2026-12-01"],
+    ["strengthening-xenon-community", "2026-12-05"],
+    ["creator-casting-editing-opportunities", "2026-12-07"],
+  ];
+  assert.equal(editorialDrafts.length, schedule.length);
+  for (const [slug, date] of schedule) {
+    const article = editorialDrafts.find((candidate) => candidate.slug === slug);
+    assert.equal(article.status, "published");
+    assert.equal(article.date, date);
+    const eve = new Date(Date.parse(date) - 86400000).toISOString().slice(0, 10);
+    assert.ok(!publishedNews(eve).some((candidate) => candidate === article));
+    assert.deepEqual(publishedNews(date).filter((candidate) => candidate.slug === slug), [article]);
+  }
 
-  const refresh = editorialDrafts.find(({ slug }) => slug === contentSlug);
-  refresh.status = "published";
+  const original = publishedNews("2026-11-26");
+  assert.equal(original.find(({ slug }) => slug === eventSlug).title, "December Community Events Are Coming");
   assert.equal(publishedNews("2026-11-30").find(({ slug }) => slug === contentSlug).date, "2026-11-13");
-  const released = publishedNews("2026-12-01").filter(({ slug }) => slug === contentSlug);
-  assert.deepEqual(released, [refresh]);
-  assert.equal(publishedNews("2026-12-07").filter(({ slug }) => slug === eventSlug).length, 1);
+  assert.ok(!publishedNews("2026-12-31").some(({ slug }) => slug === "rocket-league-coaching-addition"));
 });
 
 test("public news and recruitment omit draft details even if a production process has the local review flag", () => {
   const previous = { NODE_ENV: process.env.NODE_ENV, XENON_EDITORIAL_REVIEW: process.env.XENON_EDITORIAL_REVIEW };
-  const news = load("data/news.ts");
+  const { editorialDrafts } = load("data/news-drafts.ts");
+  const drafts = editorialDrafts.map((article) => ({ ...article, status: "draft" }));
+  const news = load("data/news.ts", { "@/data/news-drafts": { editorialDrafts: drafts } });
   const { visibleOpportunities } = load("lib/recruitment-opportunities.ts", { "@/data/news": news });
   try {
     process.env.XENON_EDITORIAL_REVIEW = "1";

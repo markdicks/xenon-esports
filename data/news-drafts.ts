@@ -6,12 +6,12 @@ import { DISCORD_INVITE_URL } from "@/lib/public-links";
 const [rocketLeagueRoster, valorantRoster, rocketLeagueContent, creators] = recruitmentOpportunities;
 const ppp = collaborators[0];
 
-// Sparky approves each article separately. Set its release date before changing its status to published.
-// Drafts with an existing slug replace the previous version only once approved and due.
+// Sparky approved this release schedule on 27 November 2026.
+// Approved articles replace any existing version only on their release date in SAST.
 export const editorialDrafts: NewsArticle[] = [
   {
     title: "Xenon Esports Begins Rocket League Main Roster Recruitment",
-    slug: rocketLeagueRoster.article, date: "2026-11-27", category: "Competitive", status: "draft",
+    slug: rocketLeagueRoster.article, date: "2026-11-27", category: "Competitive", status: "published",
     summary: "Player evaluations are underway as Xenon builds its main Rocket League roster for the 2027 season.",
     content: [
       "Xenon’s Competitive department has started assessing players for the main Rocket League roster. The aim is to put together a team that can train consistently and represent Xenon in Sub-Saharan African competition.",
@@ -23,7 +23,7 @@ export const editorialDrafts: NewsArticle[] = [
   },
   {
     title: "Expressions of Interest Open for Xenon’s Female Valorant Roster",
-    slug: valorantRoster.article, date: "2026-11-29", category: "Competitive", status: "draft",
+    slug: valorantRoster.article, date: "2026-11-29", category: "Competitive", status: "published",
     summary: "Xenon is inviting players to put their names forward for a female Valorant team that is still in development.",
     content: [
       "Expressions of interest are open for Xenon’s female Valorant roster. We’re looking for players who want to practise together, communicate clearly in matches and keep improving as a team.",
@@ -35,7 +35,7 @@ export const editorialDrafts: NewsArticle[] = [
   },
   {
     title: "Xenon’s Rocket League Content Programme Takes Shape",
-    slug: rocketLeagueContent.article, date: "2026-12-01", category: "Content", status: "draft",
+    slug: rocketLeagueContent.article, date: "2026-12-01", category: "Content", status: "published",
     summary: "The Rocket League Content Team is developing a programme around gameplay, streaming and player improvement.",
     content: [
       "The Rocket League Content Team is taking shape around what players already do well: play matches, review their games and share the moments worth watching. We’re working out how streams, coaching and edits can fit into a programme that helps people improve at the game and get better at making content.",
@@ -47,7 +47,7 @@ export const editorialDrafts: NewsArticle[] = [
   },
   {
     title: "Xenon x Powerpuff Potatoes – December Valorant Event",
-    slug: "december-community-events", date: "2026-11-27", category: "Events", status: "draft",
+    slug: "december-community-events", date: "2026-11-27", category: "Events", status: "published",
     summary: "Xenon and Powerpuff Potatoes are planning a December Valorant event with a community format vote and a separate six-player 1v1 pre-show.",
     content: [
       "Xenon Esports and Powerpuff Potatoes are bringing their communities together for a Valorant event in December. The format vote gives players a choice between a 2v2 Skirmish played as best-of-three series and a standard 5v5 tournament. The organisers will use the result alongside player availability and what they can run on the day.",
@@ -60,7 +60,7 @@ export const editorialDrafts: NewsArticle[] = [
   },
   {
     title: "Strengthening Xenon’s Community Experience",
-    slug: "strengthening-xenon-community", date: "2026-12-05", category: "Community", status: "draft",
+    slug: "strengthening-xenon-community", date: "2026-12-05", category: "Community", status: "published",
     summary: "The Community team is reviewing how Discord is organised and how members find their way to games, events and help.",
     content: [
       "A new member should be able to join the Xenon Discord, find the right channels and see how to get involved. That’s the work the Community team is focusing on before the January relaunch.",
@@ -72,7 +72,7 @@ export const editorialDrafts: NewsArticle[] = [
   },
   {
     title: "Xenon Expands Creator, Casting and Editing Opportunities",
-    slug: creators.article, date: "2026-12-07", category: "Recruitment / Content", status: "draft",
+    slug: creators.article, date: "2026-12-07", category: "Recruitment / Content", status: "published",
     summary: "Interviews are continuing for people interested in making content, covering matches and helping run community events.",
     content: [
       "Xenon is continuing to review expressions of interest and speak with people who want to help make things for the organisation. That includes streamers and creators, short- and long-form editors, graphic designers, Valorant and Rocket League casters, and people interested in helping with community events.",
