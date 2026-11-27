@@ -1,8 +1,12 @@
 import { updates } from "@/data/updates";
+import { editorialDrafts } from "@/data/news-drafts";
 
 export type NewsArticle = {
   title: string; slug: string; date: string; summary: string; category: string;
   status: "draft" | "published"; content: string[]; action?: { label: string; href: string }; leadership?: boolean;
+  image?: { src: string; alt: string; width: number; height: number };
+  event?: "valorant";
+  related?: string[];
 };
 
 // Five general articles were approved for publication. Coaching stays unpublished.
@@ -15,7 +19,7 @@ export const news: NewsArticle[] = [
       "The Valorant format poll will let the community express a preference between a 2v2 Skirmish Tournament with best-of-three series and a 5v5 Standard Tournament. Voting will open after organisers enable it. Results are community preferences, not an automatic decision: interest levels, player availability and feasibility will all be reviewed.",
       "A separate Valorant 1v1 pre-show will give six selected players an opportunity to take part before the main event. Expressions of interest are not places in the showcase, and selection is not first come, first served. The pre-show's format, match order and rules will be decided by organisers later.",
       "The events hub will carry confirmed information as it becomes available. No dates, prizes, sponsors or partners are being announced at this stage.",
-    ], action: { label: "Vote on the Valorant Event", href: "/events/valorant/vote" },
+    ], event: "valorant",
   },
   {
     title: "Xenon Recruitment & Interviews Are Underway", slug: "recruitment-and-interviews-underway", date: "2026-11-13", category: "Organisation", status: "published",
@@ -70,8 +74,27 @@ export const news: NewsArticle[] = [
     date: "2026-10", category: item.category, status: "published", summary: item.excerpt, content: [item.excerpt], leadership: item.category === "Leadership",
   })),
 ];
-export const publishedNews = () => news.filter((article) => article.status === "published").sort((a, b) => b.date.localeCompare(a.date));
+const publicationDate = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Africa/Johannesburg", year: "numeric", month: "2-digit", day: "2-digit",
+});
+
+export const isEditorialReview = () =>
+  process.env.NODE_ENV === "development" && process.env.XENON_EDITORIAL_REVIEW === "1";
+
+function articlesForDate(today: string, review = false) {
+  const isPublished = (article: NewsArticle) =>
+    article.status === "published" && article.date <= today;
+  const articles = new Map(news.filter(isPublished).map((article) => [article.slug, article]));
+  for (const article of editorialDrafts) {
+    if (review || isPublished(article)) articles.set(article.slug, article);
+  }
+  return Array.from(articles.values()).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export const publishedNews = (today = publicationDate.format()) => articlesForDate(today);
 export const publishedArticle = (slug: string) => publishedNews().find((article) => article.slug === slug);
+export const visibleNews = () => articlesForDate(publicationDate.format(), isEditorialReview());
+export const visibleArticle = (slug: string) => visibleNews().find((article) => article.slug === slug);
 export function newsDate(value: string) {
   return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", ...(value.length > 7 ? { day: "numeric" as const } : {}), timeZone: "UTC" }).format(new Date(`${value.length === 7 ? `${value}-01` : value}T12:00:00Z`));
 }

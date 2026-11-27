@@ -23,7 +23,6 @@ export function Hero() {
               Join Discord
             </Button>
           </div>
-          <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm font-bold text-ion"><a href="/events/valorant/vote" className="inline-flex min-h-11 items-center hover:underline">December Valorant vote</a><a href="/events/valorant/pre-show" className="inline-flex min-h-11 items-center hover:underline">1v1 pre-show interest</a></div>
         </div>
         <div className="relative min-h-[24rem] overflow-hidden rounded-lg bg-black">
           <Image

@@ -1,26 +1,71 @@
 import Link from "next/link";
-import { Button } from "@/components/ui/Button";
-import { publicCommunityEvents } from "@/lib/community-events";
-import { publishedNews, newsDate } from "@/data/news";
-import { DISCORD_INVITE_URL } from "@/lib/public-links";
-import { collaborators } from "@/data/collaborations";
 import { AwarenessBadge } from "@/components/collaborations/AwarenessBadge";
+import { ValorantEventActions } from "@/components/events/ValorantEventActions";
+import { collaborators } from "@/data/collaborations";
+import { isEditorialReview, newsDate, visibleNews } from "@/data/news";
+import { opportunityHref } from "@/data/recruitment-opportunities";
+import { editorialValorantEvent } from "@/lib/editorial-events";
+import { visibleOpportunities } from "@/lib/recruitment-opportunities";
 
 export async function CommunityProgress() {
-  const events = await publicCommunityEvents(), valorant = events[0], rocketLeague = events[1];
-  return <>
-    <section className="border-y border-white/10 px-5 py-14 sm:px-8 sm:py-16" aria-labelledby="road-underway"><div className="mx-auto max-w-7xl">
-      <p className="font-display text-xs font-bold uppercase text-ion">November / December 2026</p>
-      <h2 id="road-underway" className="mt-4 max-w-4xl font-display text-3xl font-black leading-tight text-white sm:text-5xl">THE ROAD TO 2027 IS UNDERWAY</h2>
-      <div className="mt-6 grid gap-5 lg:grid-cols-2"><p className="leading-8 text-steel">Six leadership departments are established, with applications and interviews actively underway. Rocket League competitive and content programmes are developing, and early brand conversations are exploring future relationships.</p><p className="leading-8 text-steel">Our first community events are being planned for December 2026. Help shape the Valorant format or put your name forward for the separate six-player 1v1 pre-show when registration opens. Follow the events hub for confirmed dates and final formats.</p></div>
-      <div className="mt-6 flex flex-wrap gap-x-7 gap-y-1 text-sm font-bold text-ion"><a href={DISCORD_INVITE_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center hover:underline">Join Discord</a><Link href="/join/interest" className="inline-flex min-h-11 items-center hover:underline">Get Involved</Link><Link href="/events/valorant/vote" className="inline-flex min-h-11 items-center hover:underline">Vote on Events</Link><Link href="/updates" className="inline-flex min-h-11 items-center hover:underline">Latest News</Link></div>
-      <div className="mt-10 flex flex-wrap items-end justify-between gap-3"><h3 className="font-display text-2xl font-black text-white">Upcoming December events</h3><Link href="/events" className="inline-flex min-h-11 items-center text-sm font-bold text-ion hover:underline">All event details</Link></div>
-      <div className="mt-4 divide-y divide-white/10 border-y border-white/10">
-        <article className="community-home-row"><div><p className="text-xs font-bold uppercase text-ion">Valorant / Xenon x PPP</p><h4 className="mt-2 text-lg font-bold text-white">Community format vote</h4><p className="mt-2 text-sm text-steel">Co-hosted with Powerpuff Potatoes. 2v2 Skirmish BO3 or 5v5 Standard; organisers confirm the final format.</p><Link href="/events/valorant" className="mt-2 inline-flex min-h-11 items-center text-sm font-bold text-ion hover:underline">Meet PPP and explore the event</Link><div><AwarenessBadge partner={collaborators[0]} /></div></div><Button href="/events/valorant/vote" variant="secondary">{valorant.available && valorant.settings.pollOpen ? "Vote now" : "View the vote"}</Button></article>
-        <article className="community-home-row"><div><p className="text-xs font-bold uppercase text-ion">Valorant / Exclusive pre-show</p><h4 className="mt-2 text-lg font-bold text-white">Six-player 1v1 showcase</h4><p className="mt-2 text-sm text-steel">Register interest for a chance to be selected. A submission does not guarantee a place.</p></div><Button href="/events/valorant/pre-show" variant="secondary">{valorant.available && valorant.settings.registrationOpen ? "Register interest" : "Pre-show interest"}</Button></article>
-        <article className="community-home-row"><div><p className="text-xs font-bold uppercase text-ion">Rocket League / Community</p><h4 className="mt-2 text-lg font-bold text-white">December community event</h4><p className="mt-2 text-sm text-steel">{rocketLeague.settings.status === "planning" ? "In planning. Confirmed participation details will follow." : "See the latest event and participation details."}</p></div><Link href="/events#rocket-league" className="inline-flex min-h-11 items-center text-sm font-bold text-ion hover:underline">{rocketLeague.settings.status === "planning" ? "Details coming soon" : "Event details"}</Link></article>
-      </div>
-    </div></section>
-    <section className="px-5 py-14 sm:px-8 sm:py-16" aria-labelledby="latest-news"><div className="mx-auto max-w-7xl"><div className="flex flex-wrap items-center justify-between gap-4"><h2 id="latest-news" className="font-display text-3xl font-black text-white">Latest Xenon news</h2><Link href="/updates" className="inline-flex min-h-11 items-center text-sm font-bold text-ion hover:underline">All news</Link></div><div className="mt-6 divide-y divide-white/10">{publishedNews().slice(0, 3).map((article) => <article key={article.slug} className="grid gap-3 py-6 md:grid-cols-[160px_1fr]"><time dateTime={article.date} className="text-sm text-steel">{newsDate(article.date)}</time><div><h3 className="font-display text-xl font-black text-white"><Link href={`/updates/${article.slug}`} className="hover:text-ion">{article.title}</Link></h3><p className="mt-2 max-w-3xl text-sm leading-7 text-steel">{article.summary}</p></div></article>)}</div></div></section>
-  </>;
+  const valorant = await editorialValorantEvent(false);
+  const rosters = visibleOpportunities().filter(({ id }) => id === "rocket-league-roster" || id === "valorant-roster");
+
+  return (
+    <>
+      <section className="border-y border-white/10 px-5 py-14 sm:px-8 sm:py-16" aria-labelledby="road-underway">
+        <div className="mx-auto max-w-7xl">
+          <h2 id="road-underway" className="max-w-4xl font-display text-3xl font-black leading-tight text-white sm:text-5xl">What we’re working on</h2>
+          <p className="mt-4 max-w-3xl leading-7 text-steel">
+            We’re reviewing applications, developing our Rocket League programmes and preparing December community events.
+            We’re also speaking with other organisations about ways to work together.
+          </p>
+          {rosters.length ? (
+            <ul className="mt-6 flex flex-wrap gap-x-7 gap-y-1 text-sm font-bold text-ion">
+              {rosters.map((opportunity) => <li key={opportunity.id}>
+                <Link href={opportunityHref(opportunity)} className="inline-flex min-h-11 items-center hover:underline">{opportunity.title} interest</Link>
+              </li>)}
+            </ul>
+          ) : null}
+          <div className="mt-7 rounded-lg border border-white/12 bg-white/[0.04] p-5 sm:p-6">
+            <div className="grid gap-5 lg:grid-cols-2 lg:items-end">
+              <div>
+                <h3 className="font-display text-xl font-black text-white">December Valorant · Xenon x PPP</h3>
+                <p className="mt-2 text-sm leading-6 text-steel">Choose between 2v2 Skirmish and standard 5v5 in the format poll. A separate 1v1 pre-show has six places.</p>
+              </div>
+              <ValorantEventActions event={valorant} />
+            </div>
+            <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-white/10 pt-4">
+              <AwarenessBadge partner={collaborators[0]} />
+              <Link href="/events#rocket-league" className="inline-flex min-h-11 items-center text-sm font-bold text-ion hover:underline">Rocket League community event</Link>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section className="px-5 py-14 sm:px-8 sm:py-16" aria-labelledby="latest-news">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <h2 id="latest-news" className="font-display text-3xl font-black text-white">Latest Xenon News</h2>
+            <Link href="/updates" className="inline-flex min-h-11 items-center text-sm font-bold text-ion hover:underline">All news</Link>
+          </div>
+          {isEditorialReview() ? <p className="mt-2 text-sm font-bold text-volt">Local editorial review · Includes drafts</p> : null}
+          <div className="mt-4 divide-y divide-white/10">
+            {visibleNews().slice(0, 3).map((article) => (
+              <article key={article.slug} className="grid gap-2 py-5 md:grid-cols-[180px_1fr] md:gap-4">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-sm md:block">
+                  <p className="font-bold text-ion">{article.category}</p>
+                  <time dateTime={article.date} className="text-steel md:mt-1 md:block">{newsDate(article.date)}</time>
+                  {article.status === "draft" ? <span className="font-bold text-volt md:mt-1 md:block">Draft</span> : null}
+                </div>
+                <div>
+                  <h3 className="font-display text-xl font-black text-white"><Link href={`/updates/${article.slug}`} className="hover:text-ion">{article.title}</Link></h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-steel">{article.summary}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+    </>
+  );
 }

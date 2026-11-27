@@ -1,5 +1,8 @@
 import type { Pillar } from "@/types";
+import Link from "next/link";
+import { Suspense } from "react";
 import { SectionHeading } from "@/components/ui/SectionHeading";
+import { getStaffRoles } from "@/lib/discord-roster";
 
 const pillars: Pillar[] = [
   {
@@ -21,6 +24,13 @@ const pillars: Pillar[] = [
           "Members can see what Xenon is building, where it is going and how to take part.",
   },
 ];
+
+async function LeadershipStatus() {
+  const roles = await getStaffRoles();
+  if (roles.some(({ status }) => status === "unavailable")) return null;
+  const assigned = roles.filter(({ holders }) => holders.length > 0).length;
+  return <span className="text-sm text-steel">{assigned} of {roles.length} leadership roles filled</span>;
+}
 
 export function Pillars() {
   return (
@@ -46,6 +56,10 @@ export function Pillars() {
               <p className="mt-4 leading-7 text-steel">{pillar.description}</p>
             </article>
           ))}
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 text-sm">
+          <Link href="/leadership" className="inline-flex min-h-11 items-center font-bold text-ion hover:underline">See current leadership</Link>
+          <Suspense fallback={null}><LeadershipStatus /></Suspense>
         </div>
       </div>
     </section>

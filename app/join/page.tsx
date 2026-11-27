@@ -2,6 +2,9 @@ import { Footer } from "@/components/layout/Footer";
 import { Navbar } from "@/components/layout/Navbar";
 import { Button } from "@/components/ui/Button";
 import { DISCORD_INVITE_URL } from "@/lib/public-links";
+import { RecruitmentOpportunities } from "@/components/recruitment/RecruitmentOpportunities";
+
+export const dynamic = "force-dynamic";
 
 const paths = [
   {
@@ -44,6 +47,8 @@ export default function JoinPage() {
             </div>
             <Button href={DISCORD_INVITE_URL} target="_blank" rel="noreferrer" className="mt-5 w-full sm:mt-0 sm:w-auto">Join Discord</Button>
           </div>
+
+          <RecruitmentOpportunities />
 
           <h2 className="mt-12 font-display text-2xl font-black text-white sm:text-3xl">What brings you here?</h2>
           <div className="mt-5 grid gap-3 md:grid-cols-2">
